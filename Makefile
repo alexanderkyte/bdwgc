@@ -1,14 +1,14 @@
 CC = gcc
-FLAGS = -ggdb
-LIBS = /usr/include/libdwarf/
+FLAGS = -ggdb -I/usr/include/libdwarf/ -L/usr/lib -l elf -l dwarf -std=c99
 FILES = test.c read_types.c
 
 # -gsplit-dwarf
 
 all: test
 
-test: test.c
-	$(CC) test.c read_types.c $(FLAGS) -I $(LIBS) -std=c99 -o test
+test: test.c read_types.c
+	$(CC) test.c read_types.c $(FLAGS) -o test
+
 
 clean:
 	rm test

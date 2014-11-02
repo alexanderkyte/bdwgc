@@ -20,14 +20,15 @@ int main(int argc, char** argv){
   z = 100000;
   int x = 10;
   Node v = {.x = 100, .next = (void*)0};
-  returnAddr();
 
   if(argc <= 0){
     perror("Argv does not contain executable name. Something went very wrong");
   }
-  types_init(argv[0]);  
-  getRoots(1);
-  types_finialize();
+  types_init(argv[0]);
+  printf("init done\n");
+  getRoots();
+  printf("got roots\n");
+  types_finalize();
 
   return y + z + x + fact(5) + 1;
 }
