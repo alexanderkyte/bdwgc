@@ -271,3 +271,151 @@ int getRoots(void){
 
   return 0;
 };
+
+int typeOf(Dwarf_Debug dbg, Dwarf_Die die, Dwarf_Die* type_die, Dwarf_Error* err){
+  Dwarf_Attribute type;
+  Dwarf_Off ref_off = 0;
+
+  if(dwarf_attr(die, DW_AT_type, &type, err) != DW_DLV_OK){
+    perror("Error in getting type attribute\n");
+    return -1;
+  }
+
+  if(dwarf_global_formref(type, &ref_off, err) != DW_DLV_OK){
+    perror("Error in getting type offset\n");
+    return -1;
+  }
+
+  if(dwarf_offdie(dbg, ref_off, type_die, err) != DW_DLV_OK){
+    perror("Error in getting die at offset\n");
+    return -1;
+  }
+
+  return DW_DLV_OK;
+}
+
+
+#define INITIAL_ROOT_SIZE 30
+typedef struct {
+  Dwarf_Die* type_die;
+  void* location;
+} RootPointer;
+
+typedef struct {
+  int filled;
+  int capacity;
+  RootPointer** contents;
+} FunctionRoots;
+
+void newFunctionRoots(FunctionRoots** roots){
+  RootPointer* pointers = calloc(INITIAL_ROOT_SIZE, sizeof(RootPointer *));
+  *roots = calloc(1, sizeof(FunctionRoots));
+  (*roots)->filled = 0;
+  (*roots)->capacity = INITIAL_ROOT_SIZE;
+  (*roots)->contents = &pointers;
+  return;
+}
+
+int varLocation(Dwarf_Debug dbg,
+                Dwarf_Addr program_counter,
+                Dwarf_Die fun_die,
+                Dwarf_Die child_die,
+                void** location,
+                Dwarf_Error* err){
+
+  // Program counter is return address, so can be used to find
+  // saved registers
+
+  Dwarf_Attribute die_location;
+
+  if(dwarf_attr(child_die, DW_AT_location, &die_location, err) != DW_DLV_OK){
+    perror("Error in getting location attribute\n");
+    return -1;
+  }
+
+  Dwarf_Signed numberOfExpressions;
+  Dwarf_Locdesc*** llbuf;
+  
+  if(dwarf_loclist_n(die_location, llbuf, &numberOfExpressions, err) != DW_DLV_OK){
+    perror("Error in getting location attribute\n");
+    return -1;
+  }
+
+  return 0;
+  
+}
+
+
+// TODO: lexical blocks don't have their own frame bases.
+// But otherwise share everything with this.
+void typeFun(Dwarf_Addr pc, Dwarf_Debug dbg, Dwarf_Die fn_die, FunctionRoots* roots){
+  Dwarf_Error err;
+  Dwarf_Die child_die;
+
+  /* Expect the CU DIE to have children */
+  if(dwarf_child(fn_die, &child_die, &err) == DW_DLV_ERROR){
+    perror("Error getting child of function DIE\n");
+    return;
+  }
+
+  Dwarf_Half tag;
+  Dwarf_Addr lowPC, highPC;
+
+  while(1){
+    if (dwarf_tag(child_die, &tag, &err) != DW_DLV_OK){
+      perror("Error in dwarf_tag\n");
+    }
+    if (tag == DW_TAG_lexical_block){
+
+      pc_range(dbg, child_die, &lowPC, &highPC);
+      if(pc > lowPC && pc < highPC){
+        continue;
+        /* typeScope(pc, dbg, child_die, pointer_store_size, pointers); */
+      }
+
+    } else if(tag == DW_TAG_variable){
+
+      Dwarf_Die type_die;
+      if(typeOf(dbg, child_die, &type_die, &err) != DW_DLV_OK){
+        perror("Error in typing variable\n");
+      }
+
+      Dwarf_Half type_tag;
+      
+      if (dwarf_tag(type_die, &type_tag, &err) != DW_DLV_OK){
+        perror("Error in dwarf_tag\n");
+      }
+
+      if(type_tag == DW_TAG_pointer_type){
+
+        void* pointer_location;
+
+        if(varLocation(dbg, pc, fn_die, child_die, &pointer_location, &err) != DW_DLV_OK){
+          perror("Error deriving the location of a variable\n");
+        }
+        
+        if(roots->filled == roots->capacity - 1){
+          roots->contents = realloc(roots->contents, (roots->capacity) * 2 * sizeof(RootPointer *));
+          roots->capacity = (roots->capacity) * 2;
+        }
+
+        RootPointer* root = calloc(1, sizeof(RootPointer));
+        root->type_die = &type_die;
+        root->location = &pointer_location;
+        
+        roots->contents[roots->filled] = root;
+        
+        (roots->filled)++;
+      }
+    }
+
+
+    int rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
+
+    if (rc == DW_DLV_ERROR){
+      perror("Error getting sibling of DIE\n");
+    } else if (rc == DW_DLV_NO_ENTRY){
+      return;
+    }
+  }
+};
