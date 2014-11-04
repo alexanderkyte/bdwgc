@@ -1,5 +1,5 @@
 CC = gcc
-FLAGS = -ggdb -I/usr/include/libdwarf/ -L/usr/lib -l elf -l dwarf -std=c99
+FLAGS = -ggdb -Wno-pointer-to-int-cast -I/usr/include/libdwarf/ -L/usr/lib -l elf -l dwarf -std=c99
 FILES = test.c read_types.c
 
 # -gsplit-dwarf
