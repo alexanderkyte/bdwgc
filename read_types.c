@@ -100,17 +100,8 @@ void pc_range(Dwarf_Debug dgb, Dwarf_Die fn_die, Dwarf_Addr* lowPC, Dwarf_Addr* 
 
 }
 
-
-/* - loop through all of them */
-/* - if function, add to function lookup */
-/* - if struct, add to struct description */
-
-
-
 /* int pointers_in_fun */
-
-int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, Dwarf_Die** functions)
-{
+int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, Dwarf_Die** functions){
   Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
   Dwarf_Half version_stamp, address_size;
   Dwarf_Error err;
@@ -190,10 +181,10 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, Dwarf_Die*
   return -1;
 }
 
-#define INITIAL_FRAME_SIZE 50
 
-int getRoots(void){
-  int frameCount = INITIAL_FRAME_SIZE;
+
+int dwarf_backtrace(Dwarf_Addr** encoded_addrs){
+  int frameCount = INITIAL_BACKTRACE_SIZE;
 
   void** buffer = calloc(frameCount, sizeof(void*));
   int frames = backtrace((void **)buffer, frameCount);
@@ -210,7 +201,7 @@ int getRoots(void){
   }
 
   // To safely convert between the 32/64 bit pointers and the long long unsigned dwarf addrs.
-  Dwarf_Addr* encoded_addrs = calloc(frameCount, sizeof(Dwarf_Addr));
+  *encoded_addrs = calloc(frameCount, sizeof(Dwarf_Addr));
 
   printf("frameCount: %d, frames: %d\n\n\n", frameCount, frames);
 
@@ -226,22 +217,30 @@ int getRoots(void){
   printf("end of stack printing\n\n");
 
   for(int i=0; i < frames; i++){
-    encoded_addrs[i] = (Dwarf_Addr)buffer[i];
+    (*encoded_addrs)[i] = (Dwarf_Addr)buffer[i];
   }
 
   free(buffer);
 
   for(int i=0; i < frames; i++){
-    printf("0x%08llx\n", encoded_addrs[i]);
+    printf("0x%08llx\n", (*encoded_addrs)[i]);
   }
 
-  printf("\n\nAnd now the functions held: \n");
+  return frames;
+}
 
+
+int type_roots(TypedPointers* out){
   if(dwarfHandle == NULL){
     perror("Uninitialized dwarf handle\n");
   } else {
 
+    Dwarf_Addr* encoded_addrs;
+
+    int frames = dwarf_backtrace(&encoded_addrs);
+    
     Dwarf_Die *functions;
+
     int functionCount = funcs_in_stack(dwarfHandle, encoded_addrs, frames, &functions);
 
     if(functionCount < 0){
@@ -267,12 +266,10 @@ int getRoots(void){
     free(functions);
   }
 
-  free(encoded_addrs);
-
   return 0;
 };
 
-int typeOf(Dwarf_Debug dbg, Dwarf_Die die, Dwarf_Die* type_die, Dwarf_Error* err){
+int type_of(Dwarf_Debug dbg, Dwarf_Die die, Dwarf_Die* type_die, Dwarf_Error* err){
   Dwarf_Attribute type;
   Dwarf_Off ref_off = 0;
 
@@ -294,31 +291,90 @@ int typeOf(Dwarf_Debug dbg, Dwarf_Die die, Dwarf_Die* type_die, Dwarf_Error* err
   return DW_DLV_OK;
 }
 
-
-#define INITIAL_ROOT_SIZE 30
-typedef struct {
-  Dwarf_Die* type_die;
-  void* location;
-} RootPointer;
-
-typedef struct {
-  int filled;
-  int capacity;
-  RootPointer** contents;
-} FunctionRoots;
-
-void newFunctionRoots(FunctionRoots** roots){
+void new_function_roots(TypedPointers** roots){
   RootPointer* pointers = calloc(INITIAL_ROOT_SIZE, sizeof(RootPointer *));
-  *roots = calloc(1, sizeof(FunctionRoots));
+  *roots = calloc(1, sizeof(TypedPointers));
   (*roots)->filled = 0;
   (*roots)->capacity = INITIAL_ROOT_SIZE;
   (*roots)->contents = &pointers;
   return;
 }
 
-int varLocation(Dwarf_Debug dbg,
-                Dwarf_Addr program_counter,
-                Dwarf_Die fun_die,
+// TODO: lexical blocks don't have their own frame bases.
+// But otherwise share everything with this.
+void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Error* err){
+  Dwarf_Die child_die;
+
+  /* Expect the CU DIE to have children */
+  if(dwarf_child(fun->fn_die, &child_die, err) == DW_DLV_ERROR){
+    perror("Error getting child of function DIE\n");
+    return;
+  }
+
+  Dwarf_Half tag;
+  Dwarf_Addr lowPC, highPC;
+
+  while(1){
+    if (dwarf_tag(child_die, &tag, err) != DW_DLV_OK){
+      perror("Error in dwarf_tag\n");
+    }
+    if (tag == DW_TAG_lexical_block){
+
+      pc_range(dbg, child_die, &lowPC, &highPC);
+      if(fun->pc > lowPC && fun->pc < highPC){
+        continue;
+        /* typeScope(pc, dbg, child_die, pointer_store_size, pointers); */
+      }
+
+    } else if(tag == DW_TAG_variable){
+
+      Dwarf_Die type_die;
+      if(type_of(dbg, child_die, &type_die, err) != DW_DLV_OK){
+        perror("Error in typing variable\n");
+      }
+
+      Dwarf_Half type_tag;
+      
+      if (dwarf_tag(type_die, &type_tag, err) != DW_DLV_OK){
+        perror("Error in dwarf_tag\n");
+      }
+
+      if(type_tag == DW_TAG_pointer_type){
+
+        void* pointer_location;
+
+        if(var_location(dbg, fun, child_die, &pointer_location, err) != DW_DLV_OK){
+          perror("Error deriving the location of a variable\n");
+        }
+        
+        if(roots->filled == roots->capacity - 1){
+          roots->contents = realloc(roots->contents, (roots->capacity) * 2 * sizeof(RootPointer *));
+          roots->capacity = (roots->capacity) * 2;
+        }
+
+        RootPointer* root = calloc(1, sizeof(RootPointer));
+        root->type_die = type_die;
+        root->location = &pointer_location;
+        
+        roots->contents[roots->filled] = root;
+        
+        (roots->filled)++;
+      }
+    }
+
+
+    int rc = dwarf_siblingof(dbg, child_die, &child_die, err);
+
+    if (rc == DW_DLV_ERROR){
+      perror("Error getting sibling of DIE\n");
+    } else if (rc == DW_DLV_NO_ENTRY){
+      return;
+    }
+  }
+};
+
+int var_location(Dwarf_Debug dbg,
+                LiveFunction* fun,
                 Dwarf_Die child_die,
                 void** location,
                 Dwarf_Error* err){
@@ -341,81 +397,10 @@ int varLocation(Dwarf_Debug dbg,
     return -1;
   }
 
+  // get the location type
+  // if fbreg, get function call base, otherwise raise unimplemented
+
   return 0;
-  
 }
 
 
-// TODO: lexical blocks don't have their own frame bases.
-// But otherwise share everything with this.
-void typeFun(Dwarf_Addr pc, Dwarf_Debug dbg, Dwarf_Die fn_die, FunctionRoots* roots){
-  Dwarf_Error err;
-  Dwarf_Die child_die;
-
-  /* Expect the CU DIE to have children */
-  if(dwarf_child(fn_die, &child_die, &err) == DW_DLV_ERROR){
-    perror("Error getting child of function DIE\n");
-    return;
-  }
-
-  Dwarf_Half tag;
-  Dwarf_Addr lowPC, highPC;
-
-  while(1){
-    if (dwarf_tag(child_die, &tag, &err) != DW_DLV_OK){
-      perror("Error in dwarf_tag\n");
-    }
-    if (tag == DW_TAG_lexical_block){
-
-      pc_range(dbg, child_die, &lowPC, &highPC);
-      if(pc > lowPC && pc < highPC){
-        continue;
-        /* typeScope(pc, dbg, child_die, pointer_store_size, pointers); */
-      }
-
-    } else if(tag == DW_TAG_variable){
-
-      Dwarf_Die type_die;
-      if(typeOf(dbg, child_die, &type_die, &err) != DW_DLV_OK){
-        perror("Error in typing variable\n");
-      }
-
-      Dwarf_Half type_tag;
-      
-      if (dwarf_tag(type_die, &type_tag, &err) != DW_DLV_OK){
-        perror("Error in dwarf_tag\n");
-      }
-
-      if(type_tag == DW_TAG_pointer_type){
-
-        void* pointer_location;
-
-        if(varLocation(dbg, pc, fn_die, child_die, &pointer_location, &err) != DW_DLV_OK){
-          perror("Error deriving the location of a variable\n");
-        }
-        
-        if(roots->filled == roots->capacity - 1){
-          roots->contents = realloc(roots->contents, (roots->capacity) * 2 * sizeof(RootPointer *));
-          roots->capacity = (roots->capacity) * 2;
-        }
-
-        RootPointer* root = calloc(1, sizeof(RootPointer));
-        root->type_die = &type_die;
-        root->location = &pointer_location;
-        
-        roots->contents[roots->filled] = root;
-        
-        (roots->filled)++;
-      }
-    }
-
-
-    int rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
-
-    if (rc == DW_DLV_ERROR){
-      perror("Error getting sibling of DIE\n");
-    } else if (rc == DW_DLV_NO_ENTRY){
-      return;
-    }
-  }
-};

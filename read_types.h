@@ -17,8 +17,58 @@
 #include <unistd.h>
 #include <string.h>
 
+#define INITIAL_ROOT_SIZE 30
+
+#define INITIAL_BACKTRACE_SIZE 50
+
+typedef struct {
+  Dwarf_Die type_die;
+  void* location;
+} RootPointer;
+
+typedef struct {
+  int filled;
+  int capacity;
+  RootPointer** contents;
+} TypedPointers;
+
+void new_function_roots(TypedPointers** roots);
+
+typedef struct {
+  Dwarf_Die fn_die;
+  Dwarf_Addr pc;
+} LiveFunction;
+
 int types_init(char* executableName);
 int types_finalize(void);
-int getRoots(void);
+
+void pc_range(Dwarf_Debug dgb,
+              Dwarf_Die fn_die,
+              Dwarf_Addr* lowPC,
+              Dwarf_Addr* highPC);
+
+int dwarf_backtrace(Dwarf_Addr** encoded_addrs);
+
+int type_of(Dwarf_Debug dbg,
+           Dwarf_Die die,
+           Dwarf_Die* type_die,
+           Dwarf_Error* err);
+
+int var_location(Dwarf_Debug dbg,
+                LiveFunction* fun,
+                Dwarf_Die child_die,
+                void** location,
+                Dwarf_Error* err);
+
+void type_fun(Dwarf_Debug dbg,
+             LiveFunction* fun,
+             TypedPointers* roots,
+             Dwarf_Error* err);
+
+int pointers_in_struct(Dwarf_Die structure, TypedPointers* pointers);
+
+int type_roots(TypedPointers* out);
+
+
 
 #endif

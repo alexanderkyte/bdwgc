@@ -26,7 +26,8 @@ int main(int argc, char** argv){
   }
   types_init(argv[0]);
   printf("init done\n");
-  getRoots();
+  TypedPointers roots;
+  type_roots(&roots);
   printf("got roots\n");
   types_finalize();
 
