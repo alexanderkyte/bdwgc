@@ -239,7 +239,7 @@ int type_roots(TypedPointers* out){
     Dwarf_Addr* encoded_addrs;
 
     int frames = dwarf_backtrace(&encoded_addrs);
-    
+
     LiveFunction* functions;
 
     int functionCount = funcs_in_stack(dwarfHandle, encoded_addrs, frames, &functions);
@@ -253,8 +253,8 @@ int type_roots(TypedPointers* out){
     roots->filled = 0;
     roots->capacity = INITIAL_ROOT_SIZE;
     roots->contents = pointers;
-  
-    
+
+
     printf("Results: \n");
 
     for(int i=0; i < functionCount; i++){
@@ -262,7 +262,7 @@ int type_roots(TypedPointers* out){
       int rc = dwarf_diename(functions[i].fn_die, &dieName, &err);
 
       type_fun(dwarfHandle, &(functions[i]), roots, &err);
-      
+
       if (rc == DW_DLV_ERROR){
         perror("Error in dwarf_diename\n");
       } else if (rc == DW_DLV_NO_ENTRY){
@@ -334,7 +334,7 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
       }
 
       Dwarf_Half type_tag;
-      
+
       if (dwarf_tag(type_die, &type_tag, err) != DW_DLV_OK){
         perror("Error in dwarf_tag\n");
       }
@@ -343,10 +343,12 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
 
         void* pointer_location;
 
-        /* if(var_location(dbg, fun, child_die, &pointer_location, err) != DW_DLV_OK){ */
-        /*   perror("Error deriving the location of a variable\n"); */
-        /* } */
-        
+        printf("printing var start\n");
+        if(var_location(dbg, fun, child_die, &pointer_location, err) != DW_DLV_OK){
+          perror("Error deriving the location of a variable\n");
+        }
+        printf("\\ printing var start\n");
+
         if(roots->filled == roots->capacity - 1){
           roots->contents = realloc(roots->contents, (roots->capacity) * 2 * sizeof(RootPointer *));
           roots->capacity = (roots->capacity) * 2;
@@ -356,10 +358,10 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
           roots->contents = realloc(roots->contents, roots->capacity * 2);
           roots->capacity = roots->capacity * 2;
         }
-        
+
         (roots->contents)[roots->filled].type_die;
         (roots->contents)[roots->filled].location = pointer_location;
-       /*  printf("%d", roots->filled); */
+
         roots->filled++;
       }
     }
@@ -394,7 +396,7 @@ int var_location(Dwarf_Debug dbg,
   Dwarf_Locdesc** llbufarray;
 
   Dwarf_Signed number_of_expressions;
-  
+
   if(dwarf_loclist_n(die_location, &llbufarray, &number_of_expressions, err) != DW_DLV_OK){
     perror("Error in getting location attribute\n");
     return -1;
@@ -402,46 +404,53 @@ int var_location(Dwarf_Debug dbg,
 
   for(int i = 0; i < number_of_expressions; ++i) {
     Dwarf_Locdesc* llbuf = llbufarray[i];
-    Dwarf_Off offset = 0;
 
-    printf("ir:");
-    for(int j=0; j < llbuf->ld_cents; j++){
-      printf("%x\n", llbuf->ld_s[j].lr_atom);
+    if(llbuf->ld_s[i].lr_atom == DW_OP_fbreg){
+
+      if(llbuf->ld_lopc != 0 &&
+         llbuf->ld_lopc > fun->pc){
+        continue;
+      }
+
+      if(llbuf->ld_hipc != 0 &&
+         llbuf->ld_hipc < fun->pc){
+        continue;
+      }
+
+      int offset = llbuf->ld_s[i].lr_number;
+
+      /* Dwarf_Cie* cie_list; */
+      /* Dwarf_Signed cie_count; */
+      /* Dwarf_Fde* fde_list; */
+      /* Dwarf_Signed fde_count; */
+
+      /* if(dwarf_get_fde_list(dbg, &cie_list, &cie_count, &fde_list, &fde_count, err) != DW_DLV_OK){ */
+      /*   fprintf(stderr, "Error getting fde list: %s\n", dwarf_errmsg(*err)); */
+      /*   return -1; */
+      /* } */
+
+
+      /* Dwarf_Fde fde; */
+      /* Dwarf_Addr lopc; */
+      /* Dwarf_Addr hipc; */
+      
+      /* if(dwarf_get_fde_at_pc(fde_list, fun->pc, &fde, &lopc, &hipc, err) != DW_DLV_OK){ */
+      /*   perror("Error getting fde for pc\n"); */
+      /*   return -1; */
+      /* } */
+
+      
+      printf("%d\n", offset);
+
+
+    } else {
+      printf("ir:");
+      for(int j=0; j < llbuf->ld_cents; j++){
+        printf("%x\n", llbuf->ld_s[j].lr_atom);
+      }
+      printf("\n\n");
     }
-    printf("\n\n");
 
-    continue;
-    
-    if(llbuf->ld_lopc != 0 &&
-       llbuf->ld_lopc > fun->pc){
-      continue;
-    }
-
-    if(llbuf->ld_hipc != 0 &&
-       llbuf->ld_hipc < fun->pc){
-      continue;
-    }
-
-    Dwarf_Signed listlen;
-    Dwarf_Locdesc* location_desc;
-    
-    if(dwarf_loclist_from_expr(dbg,
-                               llbuf->ld_s,
-                               llbuf->ld_cents,
-                               &location_desc,
-                               &listlen,
-                               err) != DW_DLV_OK){
-      fprintf(stderr, "Error occurred in getting location list from expression: %s\n", dwarf_errmsg(*err));
-      return -1;
-    }
-
-    if(listlen != 1){
-      perror("Location list from expr didn't return the one element it promises.\n");
-      return -1;
-    }
-
-    printf("size: %d\n", location_desc->ld_cents);
-    
   }
 
    /* for (i = 0; i < no_of_elements; ++i) { */
@@ -449,11 +458,9 @@ int var_location(Dwarf_Debug dbg,
    /*   dwarf_dealloc(dbg, llbufarray[i], DW_DLA_LOCDESC); */
    /* } */
    /* dwarf_dealloc(dbg, llbufarray, DW_DLA_LIST); */
-  
+
   // get the location type
   // if fbreg, get function call base, otherwise raise unimplemented
 
   return 0;
 }
-
-

@@ -27,6 +27,10 @@ int main(int argc, char** argv){
 
   double testDouble[30];
   char *testStr = "hello world";
+
+  void* test = (void*)999;
+
+  printf("test location: %p\n", &test);
   
   types_init(argv[0]);
   printf("init done\n");
