@@ -101,7 +101,7 @@ void pc_range(Dwarf_Debug dgb, Dwarf_Die fn_die, Dwarf_Addr* lowPC, Dwarf_Addr* 
 }
 
 /* int pointers_in_fun */
-int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, Dwarf_Die** functions){
+int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, LiveFunction** functions){
   Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
   Dwarf_Half version_stamp, address_size;
   Dwarf_Error err;
@@ -109,7 +109,7 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, Dwarf_Die*
 
   int status = DW_DLV_ERROR;
 
-  *functions = calloc(stackSize, sizeof(Dwarf_Die*));
+  *functions = calloc(stackSize, sizeof(LiveFunction));
   int functionCount = 0;
 
   while(true){
@@ -160,7 +160,8 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, Dwarf_Die*
         for(int i=0; i < stackSize; i++){
 
           if(stack[i] > lowPC && stack[i] < highPC){
-            (*functions)[functionCount] = child_die;
+            (*functions)[functionCount].fn_die = child_die;
+            (*functions)[functionCount].pc = stack[i];
             functionCount++;
 
           }
@@ -239,7 +240,7 @@ int type_roots(TypedPointers* out){
 
     int frames = dwarf_backtrace(&encoded_addrs);
     
-    Dwarf_Die *functions;
+    LiveFunction* functions;
 
     int functionCount = funcs_in_stack(dwarfHandle, encoded_addrs, frames, &functions);
 
@@ -247,12 +248,21 @@ int type_roots(TypedPointers* out){
       return -1;
     }
 
+    TypedPointers* roots = calloc(1, sizeof(TypedPointers));
+    RootPointer* pointers = calloc(INITIAL_ROOT_SIZE, sizeof(RootPointer));
+    roots->filled = 0;
+    roots->capacity = INITIAL_ROOT_SIZE;
+    roots->contents = pointers;
+  
+    
     printf("Results: \n");
 
     for(int i=0; i < functionCount; i++){
-      char *dieName;
-      int rc = dwarf_diename(functions[i], &dieName, &err);
+      char* dieName;
+      int rc = dwarf_diename(functions[i].fn_die, &dieName, &err);
 
+      type_fun(dwarfHandle, &(functions[i]), roots, &err);
+      
       if (rc == DW_DLV_ERROR){
         perror("Error in dwarf_diename\n");
       } else if (rc == DW_DLV_NO_ENTRY){
@@ -291,15 +301,6 @@ int type_of(Dwarf_Debug dbg, Dwarf_Die die, Dwarf_Die* type_die, Dwarf_Error* er
   return DW_DLV_OK;
 }
 
-void new_function_roots(TypedPointers** roots){
-  RootPointer* pointers = calloc(INITIAL_ROOT_SIZE, sizeof(RootPointer *));
-  *roots = calloc(1, sizeof(TypedPointers));
-  (*roots)->filled = 0;
-  (*roots)->capacity = INITIAL_ROOT_SIZE;
-  (*roots)->contents = &pointers;
-  return;
-}
-
 // TODO: lexical blocks don't have their own frame bases.
 // But otherwise share everything with this.
 void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Error* err){
@@ -322,7 +323,6 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
 
       pc_range(dbg, child_die, &lowPC, &highPC);
       if(fun->pc > lowPC && fun->pc < highPC){
-        continue;
         /* typeScope(pc, dbg, child_die, pointer_store_size, pointers); */
       }
 
@@ -343,31 +343,33 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
 
         void* pointer_location;
 
-        if(var_location(dbg, fun, child_die, &pointer_location, err) != DW_DLV_OK){
-          perror("Error deriving the location of a variable\n");
-        }
+        /* if(var_location(dbg, fun, child_die, &pointer_location, err) != DW_DLV_OK){ */
+        /*   perror("Error deriving the location of a variable\n"); */
+        /* } */
         
         if(roots->filled == roots->capacity - 1){
           roots->contents = realloc(roots->contents, (roots->capacity) * 2 * sizeof(RootPointer *));
           roots->capacity = (roots->capacity) * 2;
-        }
+       }
 
-        RootPointer* root = calloc(1, sizeof(RootPointer));
-        root->type_die = type_die;
-        root->location = &pointer_location;
+        if(roots->filled >= roots->capacity){
+          roots->contents = realloc(roots->contents, roots->capacity * 2);
+          roots->capacity = roots->capacity * 2;
+        }
         
-        roots->contents[roots->filled] = root;
-        
-        (roots->filled)++;
+        (roots->contents)[roots->filled].type_die;
+        (roots->contents)[roots->filled].location = pointer_location;
+       /*  printf("%d", roots->filled); */
+        roots->filled++;
       }
     }
 
 
     int rc = dwarf_siblingof(dbg, child_die, &child_die, err);
 
-    if (rc == DW_DLV_ERROR){
+    if(rc == DW_DLV_ERROR){
       perror("Error getting sibling of DIE\n");
-    } else if (rc == DW_DLV_NO_ENTRY){
+    } else if(rc == DW_DLV_NO_ENTRY){
       return;
     }
   }
@@ -389,14 +391,65 @@ int var_location(Dwarf_Debug dbg,
     return -1;
   }
 
-  Dwarf_Signed numberOfExpressions;
-  Dwarf_Locdesc*** llbuf;
+  Dwarf_Locdesc** llbufarray;
+
+  Dwarf_Signed number_of_expressions;
   
-  if(dwarf_loclist_n(die_location, llbuf, &numberOfExpressions, err) != DW_DLV_OK){
+  if(dwarf_loclist_n(die_location, &llbufarray, &number_of_expressions, err) != DW_DLV_OK){
     perror("Error in getting location attribute\n");
     return -1;
   }
 
+  for(int i = 0; i < number_of_expressions; ++i) {
+    Dwarf_Locdesc* llbuf = llbufarray[i];
+    Dwarf_Off offset = 0;
+
+    printf("ir:");
+    for(int j=0; j < llbuf->ld_cents; j++){
+      printf("%x\n", llbuf->ld_s[j].lr_atom);
+    }
+    printf("\n\n");
+
+    continue;
+    
+    if(llbuf->ld_lopc != 0 &&
+       llbuf->ld_lopc > fun->pc){
+      continue;
+    }
+
+    if(llbuf->ld_hipc != 0 &&
+       llbuf->ld_hipc < fun->pc){
+      continue;
+    }
+
+    Dwarf_Signed listlen;
+    Dwarf_Locdesc* location_desc;
+    
+    if(dwarf_loclist_from_expr(dbg,
+                               llbuf->ld_s,
+                               llbuf->ld_cents,
+                               &location_desc,
+                               &listlen,
+                               err) != DW_DLV_OK){
+      fprintf(stderr, "Error occurred in getting location list from expression: %s\n", dwarf_errmsg(*err));
+      return -1;
+    }
+
+    if(listlen != 1){
+      perror("Location list from expr didn't return the one element it promises.\n");
+      return -1;
+    }
+
+    printf("size: %d\n", location_desc->ld_cents);
+    
+  }
+
+   /* for (i = 0; i < no_of_elements; ++i) { */
+   /*   dwarf_dealloc(dbg, llbufarray[i]->ld_s, DW_DLA_LOC_BLOCK); */
+   /*   dwarf_dealloc(dbg, llbufarray[i], DW_DLA_LOCDESC); */
+   /* } */
+   /* dwarf_dealloc(dbg, llbufarray, DW_DLA_LIST); */
+  
   // get the location type
   // if fbreg, get function call base, otherwise raise unimplemented
 

@@ -24,6 +24,10 @@ int main(int argc, char** argv){
   if(argc <= 0){
     perror("Argv does not contain executable name. Something went very wrong");
   }
+
+  double testDouble[30];
+  char *testStr = "hello world";
+  
   types_init(argv[0]);
   printf("init done\n");
   TypedPointers roots;

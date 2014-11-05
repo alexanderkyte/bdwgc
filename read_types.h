@@ -29,10 +29,8 @@ typedef struct {
 typedef struct {
   int filled;
   int capacity;
-  RootPointer** contents;
+  RootPointer* contents;
 } TypedPointers;
-
-void new_function_roots(TypedPointers** roots);
 
 typedef struct {
   Dwarf_Die fn_die;
@@ -65,10 +63,11 @@ void type_fun(Dwarf_Debug dbg,
              TypedPointers* roots,
              Dwarf_Error* err);
 
+// Structure has byte_size
+// Stack array has subrange_type in array_type.
+// This has an upper bound of the largest valid index.
 int pointers_in_struct(Dwarf_Die structure, TypedPointers* pointers);
 
 int type_roots(TypedPointers* out);
-
-
 
 #endif
