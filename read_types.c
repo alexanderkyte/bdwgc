@@ -1,6 +1,11 @@
 #include "read_types.h"
 #include <stdbool.h>
 
+#define _BSD_SOURCE
+
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
+
 static Dwarf_Debug dwarfHandle;
 static Dwarf_Error err;
 static FILE *dwarfFile;
@@ -163,7 +168,7 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, LiveFuncti
             (*functions)[functionCount].fn_die = child_die;
             (*functions)[functionCount].pc = stack[i];
             functionCount++;
-
+            printf("%p 0x%08llx\n", child_die, stack[i]);
           }
 
         }
@@ -183,8 +188,21 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, LiveFuncti
 }
 
 
-
 int dwarf_backtrace(Dwarf_Addr** encoded_addrs){
+
+  unw_cursor_t cursor; unw_context_t uc;
+  unw_word_t ip, sp;
+
+  unw_getcontext(&uc);
+  unw_init_local(&cursor, &uc);
+  while (unw_step(&cursor) > 0) {
+    unw_get_reg(&cursor, UNW_REG_IP, &ip);
+    unw_get_reg(&cursor, UNW_REG_SP, &sp);
+    printf ("ip = %lx, sp = %lx\n", (long) ip, (long) sp);
+  }
+
+  // old
+
   int frameCount = INITIAL_BACKTRACE_SIZE;
 
   void** buffer = calloc(frameCount, sizeof(void*));
@@ -240,38 +258,42 @@ int type_roots(TypedPointers* out){
 
     int frames = dwarf_backtrace(&encoded_addrs);
 
+    exit(0);
+
     LiveFunction* functions;
 
     int functionCount = funcs_in_stack(dwarfHandle, encoded_addrs, frames, &functions);
 
-    if(functionCount < 0){
-      return -1;
-    }
-
-    TypedPointers* roots = calloc(1, sizeof(TypedPointers));
-    RootPointer* pointers = calloc(INITIAL_ROOT_SIZE, sizeof(RootPointer));
-    roots->filled = 0;
-    roots->capacity = INITIAL_ROOT_SIZE;
-    roots->contents = pointers;
+    if(functionCount > 0){
+      TypedPointers* roots = calloc(1, sizeof(TypedPointers));
+      RootPointer* pointers = calloc(INITIAL_ROOT_SIZE, sizeof(RootPointer));
+      roots->filled = 0;
+      roots->capacity = INITIAL_ROOT_SIZE;
+      roots->contents = pointers;
 
 
-    printf("Results: \n");
+      printf("Results: \n");
 
-    for(int i=0; i < functionCount; i++){
-      char* dieName;
-      int rc = dwarf_diename(functions[i].fn_die, &dieName, &err);
+      for(int i=0; i < functionCount; i++){
+        char* dieName;
+        int rc = dwarf_diename(functions[i].fn_die, &dieName, &err);
 
-      type_fun(dwarfHandle, &(functions[i]), roots, &err);
+        type_fun(dwarfHandle, &(functions[i]), roots, &err);
 
-      if (rc == DW_DLV_ERROR){
-        perror("Error in dwarf_diename\n");
-      } else if (rc == DW_DLV_NO_ENTRY){
-        return -1;
-      } else {
-        printf("%s\n", dieName);
+        if (rc == DW_DLV_ERROR){
+          perror("Error in dwarf_diename\n");
+        } else if (rc == DW_DLV_NO_ENTRY){
+          break;
+        } else {
+          printf("%s\n", dieName);
+        }
+
       }
-
+      free(roots);
     }
+
+
+    free(encoded_addrs);
 
     free(functions);
   }

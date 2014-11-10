@@ -6,7 +6,7 @@
 #ifndef DWARF_INCLUDES
 #define DWARF_INCLUDES
 
-#define _POSIX_C_SOURCE 1
+#define _DEFAULT_SOURCE
 
 #include <dwarf.h>
 #include <libdwarf.h>
