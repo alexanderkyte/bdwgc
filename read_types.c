@@ -1,10 +1,6 @@
 #include "read_types.h"
 #include <stdbool.h>
 
-#define _BSD_SOURCE
-
-#define UNW_LOCAL_ONLY
-#include <libunwind.h>
 
 static Dwarf_Debug dwarfHandle;
 static Dwarf_Error err;
@@ -105,8 +101,7 @@ void pc_range(Dwarf_Debug dgb, Dwarf_Die fn_die, Dwarf_Addr* lowPC, Dwarf_Addr* 
 
 }
 
-/* int pointers_in_fun */
-int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, LiveFunction** functions){
+int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){
   Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
   Dwarf_Half version_stamp, address_size;
   Dwarf_Error err;
@@ -114,7 +109,6 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, LiveFuncti
 
   int status = DW_DLV_ERROR;
 
-  *functions = calloc(stackSize, sizeof(LiveFunction));
   int functionCount = 0;
 
   while(true){
@@ -164,11 +158,13 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, LiveFuncti
 
         for(int i=0; i < stackSize; i++){
 
-          if(stack[i] > lowPC && stack[i] < highPC){
-            (*functions)[functionCount].fn_die = child_die;
-            (*functions)[functionCount].pc = stack[i];
-            functionCount++;
-            printf("%p 0x%08llx\n", child_die, stack[i]);
+          if(callstack->stack[i].pc > lowPC && callstack->stack[i].pc < highPC){
+            if(callstack->stack[i].fn_die != NULL){
+                fprintf(stderr, "Overlapping functions, err!");
+                exit(1);
+            }
+            printf("assigning: %llu < %llu < %llu\n", lowPC, callstack->stack[i].pc, highPC);
+            callstack->stack[i].fn_die = child_die;
           }
 
         }
@@ -187,10 +183,19 @@ int funcs_in_stack(Dwarf_Debug dbg, Dwarf_Addr* stack, int stackSize, LiveFuncti
   return -1;
 }
 
+#define INITIAL_LIVE_FUNCTION_SIZE 20
 
-int dwarf_backtrace(Dwarf_Addr** encoded_addrs){
+int dwarf_backtrace(CallStack** returnStack){
+  *returnStack = calloc(sizeof(CallStack), 1);
 
-  unw_cursor_t cursor; unw_context_t uc;
+  CallStack *callStack = *returnStack;
+  callStack->stack = calloc(sizeof(LiveFunction), INITIAL_LIVE_FUNCTION_SIZE);
+  callStack->count = 0;
+  callStack->capacity = INITIAL_LIVE_FUNCTION_SIZE;
+
+  unw_cursor_t cursor;
+
+  unw_context_t uc;
   unw_word_t ip, sp;
 
   unw_getcontext(&uc);
@@ -198,54 +203,17 @@ int dwarf_backtrace(Dwarf_Addr** encoded_addrs){
   while (unw_step(&cursor) > 0) {
     unw_get_reg(&cursor, UNW_REG_IP, &ip);
     unw_get_reg(&cursor, UNW_REG_SP, &sp);
-    printf ("ip = %lx, sp = %lx\n", (long) ip, (long) sp);
-  }
-
-  // old
-
-  int frameCount = INITIAL_BACKTRACE_SIZE;
-
-  void** buffer = calloc(frameCount, sizeof(void*));
-  int frames = backtrace((void **)buffer, frameCount);
-
-  // Will always be equal or less.
-  // Equal has possibility of missing frames.
-  while(frames >= frameCount){
-    frameCount += 10;
-    buffer = realloc(buffer, frameCount * sizeof(void *));
-    if(buffer == NULL){
-      perror("Could not reallocate memory.\n");
+    if(callStack -> count >= callStack->capacity){
+        callStack->capacity *= 2;
+        callStack->stack = realloc(callStack->stack, callStack->capacity);
     }
-    frames = backtrace((void**)buffer, frameCount);
+    callStack->stack[callStack->count].cursor = cursor;
+    callStack->stack[callStack->count].pc = (Dwarf_Addr) ip;
+    callStack->stack[callStack->count].sp = (Dwarf_Addr) sp;
+    callStack->count++;
   }
 
-  // To safely convert between the 32/64 bit pointers and the long long unsigned dwarf addrs.
-  *encoded_addrs = calloc(frameCount, sizeof(Dwarf_Addr));
-
-  printf("frameCount: %d, frames: %d\n\n\n", frameCount, frames);
-
-  int frames_tmp = frames;
-
-  for(int i=0; i < frames_tmp; i++){
-    printf("%p\n", buffer[i]);
-    if(buffer[i] == NULL){
-      frames--;
-    }
-  }
-
-  printf("end of stack printing\n\n");
-
-  for(int i=0; i < frames; i++){
-    (*encoded_addrs)[i] = (Dwarf_Addr)buffer[i];
-  }
-
-  free(buffer);
-
-  for(int i=0; i < frames; i++){
-    printf("0x%08llx\n", (*encoded_addrs)[i]);
-  }
-
-  return frames;
+  return callStack->count;
 }
 
 
@@ -254,17 +222,19 @@ int type_roots(TypedPointers* out){
     perror("Uninitialized dwarf handle\n");
   } else {
 
-    Dwarf_Addr* encoded_addrs;
+    CallStack* callStack;
 
-    int frames = dwarf_backtrace(&encoded_addrs);
+    int frames = dwarf_backtrace(&callStack);
 
-    exit(0);
+    printf("%d %d\n", callStack->count, frames);
 
-    LiveFunction* functions;
+    func_dies_in_stack(dwarfHandle, callStack, frames);
 
-    int functionCount = funcs_in_stack(dwarfHandle, encoded_addrs, frames, &functions);
+    for(int i=0; i < callStack->count; i++){
+      printf("pc: %llu sp: %llu\n", callStack->stack[i].pc, callStack->stack[i].pc);
+    }
 
-    if(functionCount > 0){
+    if(frames > 0){
       TypedPointers* roots = calloc(1, sizeof(TypedPointers));
       RootPointer* pointers = calloc(INITIAL_ROOT_SIZE, sizeof(RootPointer));
       roots->filled = 0;
@@ -274,18 +244,20 @@ int type_roots(TypedPointers* out){
 
       printf("Results: \n");
 
-      for(int i=0; i < functionCount; i++){
-        char* dieName;
-        int rc = dwarf_diename(functions[i].fn_die, &dieName, &err);
+      for(int i=0; i < callStack->count; i++){
+        if(callStack->stack[i].fn_die != NULL){
+          char* dieName;
+          int rc = dwarf_diename(callStack->stack[i].fn_die, &dieName, &err);
 
-        type_fun(dwarfHandle, &(functions[i]), roots, &err);
+          // type_fun(dwarfHandle, &(functions[i]), roots, &err);
 
-        if (rc == DW_DLV_ERROR){
-          perror("Error in dwarf_diename\n");
-        } else if (rc == DW_DLV_NO_ENTRY){
-          break;
-        } else {
-          printf("%s\n", dieName);
+          if (rc == DW_DLV_ERROR){
+            fprintf(stderr, "Error in dwarf_diename: %s\n", dwarf_errmsg(err));
+          } else if (rc == DW_DLV_NO_ENTRY){
+            break;
+          } else {
+            printf("name: %s pc: %llu sp: %llu\n", dieName, callStack->stack[i].pc, callStack->stack[i].pc);
+          }
         }
 
       }
@@ -293,9 +265,7 @@ int type_roots(TypedPointers* out){
     }
 
 
-    free(encoded_addrs);
-
-    free(functions);
+    free(callStack);
   }
 
   return 0;

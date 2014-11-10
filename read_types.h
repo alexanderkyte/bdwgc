@@ -17,6 +17,10 @@
 #include <unistd.h>
 #include <string.h>
 
+
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
+
 #define INITIAL_ROOT_SIZE 30
 
 #define INITIAL_BACKTRACE_SIZE 50
@@ -33,9 +37,17 @@ typedef struct {
 } TypedPointers;
 
 typedef struct {
+  unw_cursor_t cursor;
   Dwarf_Die fn_die;
   Dwarf_Addr pc;
+  Dwarf_Addr sp;
 } LiveFunction;
+
+typedef struct {
+  int count;
+  int capacity;
+  LiveFunction *stack;
+} CallStack;
 
 int types_init(char* executableName);
 int types_finalize(void);
@@ -45,7 +57,8 @@ void pc_range(Dwarf_Debug dgb,
               Dwarf_Addr* lowPC,
               Dwarf_Addr* highPC);
 
-int dwarf_backtrace(Dwarf_Addr** encoded_addrs);
+
+int dwarf_backtrace(CallStack** callStack);
 
 int type_of(Dwarf_Debug dbg,
            Dwarf_Die die,
