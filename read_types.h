@@ -27,8 +27,8 @@
 #define INITIAL_BACKTRACE_SIZE 50
 
 typedef struct {
-  Dwarf_Die type_die;
-  void* location;
+  Type* type_die;
+  void* contents
 } RootPointer;
 
 typedef struct {

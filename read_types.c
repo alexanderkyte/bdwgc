@@ -6,7 +6,7 @@ static Dwarf_Debug dwarfHandle;
 static Dwarf_Error global_err;
 static FILE *dwarfFile;
 
-const uint8_t x86_dwarf_to_libunwind_regnum[19] = {                   
+static const uint8_t x86_dwarf_to_libunwind_regnum[19] = {                   
   UNW_X86_EAX, UNW_X86_ECX, UNW_X86_EDX, UNW_X86_EBX,                                                                                                                                                 
   UNW_X86_ESP, UNW_X86_EBP, UNW_X86_ESI, UNW_X86_EDI,
   UNW_X86_EIP, UNW_X86_EFLAGS, UNW_X86_TRAPNO,
@@ -109,18 +109,22 @@ void pc_range(Dwarf_Debug dgb, Dwarf_Die fn_die, Dwarf_Addr* lowPC, Dwarf_Addr* 
 
 }
 
-int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){
+int read_dwarf(Dwarf_Debug dbg){
   Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
   Dwarf_Half version_stamp, address_size;
   Dwarf_Error err;
   Dwarf_Die no_die = 0, cu_die, child_die;
 
-  int status = DW_DLV_ERROR;
+  Array types = newHeapArray(INITIAL_TYPE_LIST_SIZE);
+  Array functions = newHeapArray(INITIAL_FUNCTION_LIST_SIZE);
 
-  int functionCount = 0;
+  // Type list
+  // Function list
+  
 
-  while(true){
-
+  bool done = false;
+  
+  while(!done){
     int status = dwarf_next_cu_header(dbg,
                                       &cu_header_length,
                                       &version_stamp,
@@ -132,10 +136,13 @@ int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){
     /* Find compilation unit header */
     if (status == DW_DLV_ERROR){
       perror("Error reading DWARF cu header\n");
+      return -1;
     } else if(status == DW_DLV_NO_ENTRY){
-      return functionCount;
+      done = true;
+      continue;
     } else if(status != DW_DLV_OK){
       perror("An undiagnosed error occurred.\n");
+      return -1;
     }
 
     /* Expect the CU to have a single sibling - a DIE */
@@ -149,46 +156,247 @@ int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){
       return -1;
     }
 
+    
     /* Now go over all children DIEs */
-    while(true) {
+    bool doneWithCU = false;
+    
+    while(!doneWithCU){
       Dwarf_Half tag;
 
       if (dwarf_tag(child_die, &tag, &err) != DW_DLV_OK){
         perror("Error in dwarf_tag\n");
       }
-      /* Only interested in subprogram DIEs here */
 
-      if (tag == DW_TAG_subprogram){
-        Dwarf_Addr lowPC = 0;
-        Dwarf_Addr highPC = 0;
-
-        pc_range(dbg, child_die, &lowPC, &highPC);
-
-        for(int i=0; i < stackSize; i++){
-
-          if(callstack->stack[i].pc > lowPC && callstack->stack[i].pc < highPC){
-            if(callstack->stack[i].fn_die != NULL){
-                fprintf(stderr, "Overlapping functions, err!");
-                exit(1);
-            }
-            printf("assigning: %llu < %llu < %llu\n", lowPC, callstack->stack[i].pc, highPC);
-            callstack->stack[i].fn_die = child_die;
-          }
-
-        }
+      if(tag == DW_TAG_subprogram){
+        dwarf_read_function(dbg, &child_die, functions);
+      } else if(tag == DW_TAG_structure_type) {
+        dwarf_read_struct(dbg, &child_die, types);
+      } else if(tag == DW_TAG_pointer_type) {
+        dwarf_read_pointer(dbg, &child_die, types);
+      } else if(tag == DW_TAG_array_type) {
+        dwarf_read_array(dbg, &child_die, types);
+      } else {
+        fprintf(stderr, "Missed die type: %x\n", tag);
+        return -1
       }
 
-      int rc;
-      rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
+
+      // What to do if someone defines a type inside of a function?
+      // We'll handle that later. Globally scope the type, since the
+      // dwarf type offset is unique.
+
+      int rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
       if (rc == DW_DLV_ERROR){
         perror("Error getting sibling of DIE\n");
+        return -1;
       } else if (rc == DW_DLV_NO_ENTRY){
-        break; /* done */
+        doneWithCU = true;
       }
-    }
+      
+    }      
+  }
+  
+  return functionCount;
+}
+
+int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Array functions, Dwarf_Err* err){
+
+  #ifdef DEBUG
+  char* dieName;
+  if(dwarf_diename(fn_die, &dieName, err) != DW_DLV_OK){
+    fprintf(stderr, "Error reading function name\n");
+    return -1;
+  }
+  #endif
+
+  Scope* top_scope;
+
+  if(dwarf_read_scope(dbg, fn_die, &top_scope, err) != DW_DLV_SUCCESS){
+    fprintf(stderr, "Problem reading scope in function reader.\n");
+    return -1;
   }
 
-  return -1;
+  Function* fun = calloc(sizeof(Function), 1);
+  fun->topScope = top_scope;
+  
+  #ifdef DEBUG
+  fn_type->dieName = dieName;
+  #endif
+
+  arrayAppend(functions, top_scope);
+
+  return DW_DLV_OK;
+}
+
+int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwarf_Err* err){
+  Dwarf_Addr lowPC = 0;
+  Dwarf_Addr highPC = 0;
+
+  pc_range(dbg, top_die, &lowPC, &highPC);
+
+  void* castedLowPC = lowPC;
+  void* castedHighPC = highPC;
+
+  *top_scope = calloc(sizeof(Scope), 1);
+
+  
+  Dwarf_Die child_die;
+  
+  if(dwarf_child(top_die, &child_die, &err) == DW_DLV_ERROR){
+    perror("Error getting child of CU DIE\n");
+    return -1;
+  }
+
+  bool done = false;
+  
+  while(!done){
+
+    Dwarf_Half tag;
+
+    if(dwarf_tag(child_die, &tag, &err) != DW_DLV_OK){
+      perror("Error in dwarf_tag\n");
+      return -1;
+    }
+    
+    // loop through children
+    // if variable, find out if pointer type, add to contents
+    // if scope, add to children
+
+    if(tag == DW_TAG_formal_parameter || 
+       tag == DW_TAG_variable){
+
+      Dwarf_Die type_die;
+      Dwarf_Half type_tag;
+      
+      if(type_of(dbg, child_die, &type_die, err) != DW_DLV_OK){
+        fprintf(stderr, "Error when getting scope variable's type tag.\n");
+        return -1;
+      }
+
+      if(dwarf_tag(child_die, &type_tag, &err) != DW_DLV_OK){
+        perror("Error in dwarf_tag\n");
+        return -1;
+      }
+
+      if(type_tag == DW_TAG_pointer_type){
+
+        if( (*top_scope)->contents == NULL ){
+          (*top_scope)->contents = newHeapArray(DEFAULT_CAPACITY);
+          // 5 elements maybe?
+        }
+        
+        if(dwarf_read_root(dbg, child_die, (*top_scope)->contents, err) != DW_DLV_OK){
+          fprintf(stderr, "Error reading pointer\n");
+          return -1;
+        }
+      }
+      // type has tag pointer type?
+
+    } else if(tag == DW_TAG_lexical_block){
+        if( (*top_scope)->children == NULL ){
+          (*top_scope)->children = newHeapArray(DEFAULT_CAPACITY);
+          // 5 elements maybe?
+          Scope* child_scope;
+          if(dwarf_read_scope(dbg, child_die, &child_scope, err) != DW_DLV_OK){
+            fprintf(stderr, "error recursing on scope.\n");
+            return -1;
+          }
+          arrayAppend((*top_scope)->children, child_scope);
+        }
+    }
+              
+    int rc = dwarf_siblingof(dbg, child_die, &child_die, err);
+    if (rc == DW_DLV_ERROR){
+      perror("Error getting sibling of DIE\n");
+      return -1;
+    } else if (rc == DW_DLV_NO_ENTRY){
+      done = true;
+    }
+  }
+  
+}
+
+int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* root_die, Array roots, Dwarf_Err* err){
+  Dwarf_Attribute die_location;
+
+  if(dwarf_attr(child_die, DW_AT_location, &die_location, err) != DW_DLV_OK){
+    perror("Error in getting location attribute\n");
+    return -1;
+  }
+
+  Dwarf_Locdesc** llbufarray;
+
+  Dwarf_Signed number_of_expressions;
+
+  if(dwarf_loclist_n(die_location, &llbufarray, &number_of_expressions, err) != DW_DLV_OK){
+    perror("Error in getting location attribute\n");
+    return -1;
+  }
+
+  Dwarf_Attribute type;
+  Dwarf_Off ref_off = 0;
+  int status;
+
+  if((status = dwarf_attr(die, DW_AT_type, &type, err)) != DW_DLV_OK){
+    if(status == DW_DLV_NO_ENTRY){
+      fprintf(stderr, "No type information associated with die\n");
+    } else {
+      fprintf(stderr, "Error %d in getting type attribute: %s\n", status, dwarf_errmsg(*err));
+    }
+    return status;
+  }
+
+  if((status = dwarf_global_formref(type, &ref_off, err)) != DW_DLV_OK){
+    fprintf(stderr, "Error %d in getting type offset: %s\n", status, dwarf_errmsg(*err));
+    return status;
+  }
+
+  Root* root = calloc(sizeof(Root), 1);
+  root->locdesc = llbufarray;
+  root->expression_count = number_of_expressions;
+  root->type = ref_off;
+}
+
+int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, Array types, Dwarf_Err* err){
+  Dwarf_Off offset;
+  
+  if(dwarf_global_die_offset(fn_die, &offset,err) != DW_DLV_SUCCESS){
+    fprintf(stderr, "Error getting die offset.\n");
+    return -1;
+  }
+  
+}
+
+int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, Array types, Dwarf_Err* err);
+
+int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, Array types, Dwarf_Err* err);
+
+
+
+
+  Dwarf_Half tag;
+  
+  int rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
+  if (rc == DW_DLV_ERROR){
+    perror("Error getting sibling of DIE\n");
+  } else if (rc == DW_DLV_NO_ENTRY){
+    doneWithCU = true;
+  }
+}
+
+int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){
+  for(int i=0; i < stackSize; i++){
+
+    if(callstack->stack[i].pc > lowPC && callstack->stack[i].pc < highPC){
+      if(callstack->stack[i].fn_die != NULL){
+        fprintf(stderr, "Overlapping functions, err!");
+        exit(1);
+      }
+      printf("assigning: %llu < %llu < %llu\n", lowPC, callstack->stack[i].pc, highPC);
+      callstack->stack[i].fn_die = child_die;
+    }
+
+  }
 }
 
 #define INITIAL_LIVE_FUNCTION_SIZE 20
@@ -253,9 +461,6 @@ int type_roots(TypedPointers* out){
 
       for(int i=0; i < callStack->count; i++){
         if(callStack->stack[i].fn_die != NULL){
-          char* dieName;
-          int rc = dwarf_diename(callStack->stack[i].fn_die, &dieName, &global_err);
-
           type_fun(dwarfHandle, &(callStack->stack[i]), roots, &global_err);
 
           for(int i=0; i < roots->filled; i++){
@@ -370,12 +575,16 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
         /* typeScope(pc, dbg, child_die, pointer_store_size, pointers); */
       }
 
+    } else if(tag == DW_TAG_formal_parameter){
+      //
     } else if(tag == DW_TAG_variable){
 
       Dwarf_Die type_die;
       if(type_of(dbg, child_die, &type_die, err) != DW_DLV_OK){
         perror("Error in typing variable\n");
       }
+      // TODO: Handle typedefs
+      // TODO: Handle const indirection
 
       Dwarf_Half type_tag;
 
@@ -419,6 +628,7 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
     }
   }
 };
+
 
 int var_location(Dwarf_Debug dbg,
                 LiveFunction* fun,
