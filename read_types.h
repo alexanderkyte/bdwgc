@@ -10,6 +10,7 @@
 
 #include <dwarf.h>
 #include <libdwarf.h>
+
 #include <stdio.h>
 #include "read_types.h"
 #include <execinfo.h>
@@ -48,6 +49,8 @@ typedef struct {
   int capacity;
   LiveFunction *stack;
 } CallStack;
+
+const uint8_t x86_dwarf_to_libunwind_regnum[19];
 
 int types_init(char* executableName);
 int types_finalize(void);

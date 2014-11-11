@@ -6,6 +6,14 @@ static Dwarf_Debug dwarfHandle;
 static Dwarf_Error err;
 static FILE *dwarfFile;
 
+const uint8_t x86_dwarf_to_libunwind_regnum[19] = {                   
+  UNW_X86_EAX, UNW_X86_ECX, UNW_X86_EDX, UNW_X86_EBX,                                                                                                                                                 
+  UNW_X86_ESP, UNW_X86_EBP, UNW_X86_ESI, UNW_X86_EDI,
+  UNW_X86_EIP, UNW_X86_EFLAGS, UNW_X86_TRAPNO,
+  UNW_X86_ST0, UNW_X86_ST1, UNW_X86_ST2, UNW_X86_ST3,
+  UNW_X86_ST4, UNW_X86_ST5, UNW_X86_ST6, UNW_X86_ST7
+};
+
 int types_init(char* executableName){
   dwarfHandle = 0;
 
@@ -231,7 +239,7 @@ int type_roots(TypedPointers* out){
     func_dies_in_stack(dwarfHandle, callStack, frames);
 
     for(int i=0; i < callStack->count; i++){
-      printf("pc: %llu sp: %llu\n", callStack->stack[i].pc, callStack->stack[i].pc);
+      printf("pc: %p sp: %p\n", (void *)callStack->stack[i].pc, (void *)callStack->stack[i].sp);
     }
 
     if(frames > 0){
@@ -241,7 +249,6 @@ int type_roots(TypedPointers* out){
       roots->capacity = INITIAL_ROOT_SIZE;
       roots->contents = pointers;
 
-
       printf("Results: \n");
 
       for(int i=0; i < callStack->count; i++){
@@ -249,14 +256,18 @@ int type_roots(TypedPointers* out){
           char* dieName;
           int rc = dwarf_diename(callStack->stack[i].fn_die, &dieName, &err);
 
-          // type_fun(dwarfHandle, &(functions[i]), roots, &err);
+          type_fun(dwarfHandle, &(callStack->stack[i]), roots, &err);
+
+          for(int i=0; i < roots->filled; i++){
+            printf("pointer: %p\n", roots->contents[i].location);
+          }
 
           if (rc == DW_DLV_ERROR){
             fprintf(stderr, "Error in dwarf_diename: %s\n", dwarf_errmsg(err));
           } else if (rc == DW_DLV_NO_ENTRY){
             break;
           } else {
-            printf("name: %s pc: %llu sp: %llu\n", dieName, callStack->stack[i].pc, callStack->stack[i].pc);
+            printf("name: %s pc: %llu sp: %llu\n", dieName, callStack->stack[i].pc, callStack->stack[i].sp);
           }
         }
 
@@ -333,13 +344,15 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
 
       if(type_tag == DW_TAG_pointer_type){
 
-        void* pointer_location;
+        void* pointer_location = NULL;
 
         printf("printing var start\n");
         if(var_location(dbg, fun, child_die, &pointer_location, err) != DW_DLV_OK){
           perror("Error deriving the location of a variable\n");
         }
-        printf("\\ printing var start\n");
+        if(pointer_location != NULL){
+          printf("pointer location: %p\n", pointer_location);
+        }
 
         if(roots->filled == roots->capacity - 1){
           roots->contents = realloc(roots->contents, (roots->capacity) * 2 * sizeof(RootPointer *));
@@ -397,7 +410,11 @@ int var_location(Dwarf_Debug dbg,
   for(int i = 0; i < number_of_expressions; ++i) {
     Dwarf_Locdesc* llbuf = llbufarray[i];
 
-    if(llbuf->ld_s[i].lr_atom == DW_OP_fbreg){
+    Dwarf_Small op = llbuf->ld_s[i].lr_atom;
+    
+    if(op == DW_OP_fbreg){
+
+      printf("fbreg: \n");
 
       if(llbuf->ld_lopc != 0 &&
          llbuf->ld_lopc > fun->pc){
@@ -409,38 +426,67 @@ int var_location(Dwarf_Debug dbg,
         continue;
       }
 
-      int offset = llbuf->ld_s[i].lr_number;
+      Dwarf_Unsigned offset = llbuf->ld_s[i].lr_number;
 
-      /* Dwarf_Cie* cie_list; */
-      /* Dwarf_Signed cie_count; */
-      /* Dwarf_Fde* fde_list; */
-      /* Dwarf_Signed fde_count; */
+      printf("setting to %llu\n", fun->sp + (unsigned long long)offset);
 
-      /* if(dwarf_get_fde_list(dbg, &cie_list, &cie_count, &fde_list, &fde_count, err) != DW_DLV_OK){ */
-      /*   fprintf(stderr, "Error getting fde list: %s\n", dwarf_errmsg(*err)); */
-      /*   return -1; */
-      /* } */
-
-
-      /* Dwarf_Fde fde; */
-      /* Dwarf_Addr lopc; */
-      /* Dwarf_Addr hipc; */
+      *location = (void *)fun->sp + offset;
       
-      /* if(dwarf_get_fde_at_pc(fde_list, fun->pc, &fde, &lopc, &hipc, err) != DW_DLV_OK){ */
-      /*   perror("Error getting fde for pc\n"); */
-      /*   return -1; */
-      /* } */
-
-      
-      printf("%d\n", offset);
-
+      return DW_DLV_OK;
 
     } else {
-      printf("ir:");
-      for(int j=0; j < llbuf->ld_cents; j++){
-        printf("%x\n", llbuf->ld_s[j].lr_atom);
+
+      Dwarf_Signed offset;
+
+      unw_regnum_t reg;
+      unw_word_t reg_value;
+      
+      switch(op){
+      case DW_OP_breg0:
+      case DW_OP_breg1:
+      case DW_OP_breg2:
+      case DW_OP_breg3:
+      case DW_OP_breg4:
+      case DW_OP_breg5:
+      case DW_OP_breg6:
+      case DW_OP_breg7:
+      case DW_OP_breg8:
+      case DW_OP_breg9:
+      case DW_OP_breg10:
+      case DW_OP_breg11:
+      case DW_OP_breg12:
+      case DW_OP_breg13:
+      case DW_OP_breg14:
+      case DW_OP_breg15:
+      case DW_OP_breg16:
+      case DW_OP_breg17:
+      case DW_OP_breg18: {
+        reg = x86_dwarf_to_libunwind_regnum[op-DW_OP_breg0];
+          
+        offset = llbuf->ld_s[i].lr_number;
+
+        printf("before: %d\n", reg);
+        
+        if(unw_get_reg(&(fun->cursor), reg, &reg_value) != 0){
+          fprintf(stderr, "Error occurred reading register\n");
+        }
+
+        printf("after: %d\n", reg);
+        
+        printf("breg %d register: %s register value: %p offset: %ld\n", reg, unw_regname(reg), (void *)reg_value, offset);
+
+        *location = (void *)reg_value + offset;
+
+        return DW_DLV_OK;
+        
+        break;
       }
-      printf("\n\n");
+
+      default:
+        printf("other: %x\n", op);
+
+      }
+
     }
 
   }
