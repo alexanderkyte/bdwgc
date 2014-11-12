@@ -72,8 +72,9 @@ typedef struct {
   Array members;
 } StructInfo;
 
+#define DEFAULT_UNION_TYPE_LIST_SIZE 5
 typedef struct {
-  TypeKey* alternatives;
+  Array alternatives; // The key of pointer types contained
 } UnionInfo;
 
 typedef struct {

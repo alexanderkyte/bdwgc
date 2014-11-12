@@ -499,7 +499,6 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwa
 
 
 int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info, Dwarf_Error* err){
-
   #ifdef DEBUG
   Dwarf_Half type_tag;
   if(dwarf_tag(type_die, &type_tag, &err) != DW_DLV_OK){
@@ -539,5 +538,94 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info,
   (*info)->targetType = target_off;
 
   return DW_DLV_OK;
+}
+
+int dwarf_read_member_offset(Dwarf_Debug dbg, Dwarf_Die* member_die, int* offset, Dwarf_Error* err){
+  Dwarf_Attribute member_location;
+  if(dwarf_attr(*member_die, DW_AT_data_member_location, &member_location, err) != DW_DLV_OK){
+    perror("Error in getting member location attribute\n");
+  }
+
+  Dwarf_Unsigned dwarf_offset;
+    Dwarf_Half form;
+    dwarf_whatform(member_location, &form, err);
+
+    if (form == DW_FORM_data1 || form == DW_FORM_data2 || 
+        form == DW_FORM_data4 || form == DW_FORM_data8 ||
+        form == DW_FORM_udata) {
+      
+        dwarf_formudata(member_location, &dwarf_offset, 0);
+
+    } else if (form == DW_FORM_sdata) {
+      
+        Dwarf_Signed soffset;
+        dwarf_formsdata(member_location, &soffset, 0);
+        if (soffset < 0) {
+             printf("unsupported negative offset\n");
+             /* FAIL */
+        }
+        dwarf_offset = (Dwarf_Unsigned)soffset;
+
+    } else {
+      Dwarf_Locdesc **locdescs;
+      Dwarf_Signed len;
+
+      if (dwarf_loclist_n(member_location, &locdescs, &len, err) == DW_DLV_ERROR) {
+        printf("unsupported member offset\n");
+      } else if(len != 1
+                || locdescs[0]->ld_cents != 1
+                || (locdescs[0]->ld_s[0]).lr_atom != DW_OP_plus_uconst) {
+        printf("unsupported location expression\n");
+      }
+      dwarf_offset = (locdescs[0]->ld_s[0]).lr_number;
+    }
+    
+    *offset = (int)dwarf_offset;
+}
+
+int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo, Dwarf_Error* err){
+  Dwarf_Die child_die;
+  
+  if(dwarf_child(*type_die, &child_die, err) == DW_DLV_ERROR){
+    perror("Error getting child of union DIE\n");
+    return -1;
+  }
+
+  bool done = false;
+
+  *unionInfo = calloc(sizeof(UnionInfo), 1);
+  (*unionInfo)->alternatives = newHeapArray(DEFAULT_UNION_TYPE_LIST_SIZE);
+
+  while(!done){
+    Dwarf_Half child_tag;
+    
+    if(dwarf_tag(child_die, &child_tag, err) != DW_DLV_OK){
+      perror("Error in dwarf_tag\n");
+      return -1;
+    }
+
+    if(child_tag == DW_TAG_member &&
+       is_pointer(dbg, &child_die, err)){
+      
+      Dwarf_Off key;
+      if(type_off(&child_die, &key, err) != DW_DLV_OK){
+        fprintf(stderr, "Error getting type offset for union member\n");
+        return -1; 
+      }
+
+      arrayAppend((*unionInfo)->alternatives, (void *)key);      
+    }
+    
+    int rc = dwarf_siblingof(dbg, child_die, &child_die, err);
+    if (rc == DW_DLV_ERROR){
+      perror("Error getting sibling of DIE\n");
+      return -1;
+    } else if (rc == DW_DLV_NO_ENTRY){
+      done = true;
+    }
+  }
+
+  
+  
 }
 
