@@ -1,5 +1,4 @@
 #include "read_types.h"
-#include <stdbool.h>
 
 void arrayAppend(Array array, void* item){
   if(array->count >= array->capacity){

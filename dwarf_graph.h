@@ -1,6 +1,10 @@
 #ifndef DWARF_GRAPH
 #define DWARF_GRAPH
 
+#ifdef DEBUG
+#include <assert.h>
+#endif
+
 #include <stdbool.h>
 
 typedef struct HeapArray {
@@ -58,6 +62,7 @@ typedef enum {
 typedef struct {
   int layersOfIndirection;
   TypeKey targetType;
+  bool void_star;  
 } PointerInfo;
 
 #define DEFAULT_STRUCT_MEMBER_LIST_SIZE 10
@@ -86,7 +91,7 @@ typedef struct Type {
   TypeCategory category;
   TypeKey key;
 #ifdef DEBUG
-  char* dieName;
+  char** dieName;
 #endif
   union {
     PointerInfo* pointerInfo;

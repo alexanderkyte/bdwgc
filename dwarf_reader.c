@@ -1,5 +1,4 @@
 #include "read_types.h"
-#include <stdbool.h>
 
 int types_init(const char* executableName, Dwarf_Debug* dbg, FILE** dwarfFile, Dwarf_Error* err){  
   if (strlen(executableName) < 2) {
@@ -32,22 +31,25 @@ int types_finalize(Dwarf_Debug dbg, FILE* dwarfFile, Dwarf_Error* err){
   return 0;
 }
 
-void pc_range(Dwarf_Debug dgb, Dwarf_Die* fn_die, Dwarf_Addr* lowPC, Dwarf_Addr* highPC){
-  Dwarf_Error err;
+int pc_range(Dwarf_Debug dgb, Dwarf_Die* fn_die, Dwarf_Addr* lowPC, Dwarf_Addr* highPC){
+  Dwarf_Error err = 0;
 
   Dwarf_Signed attrcount, i;
   if(dwarf_lowpc(*fn_die, lowPC, &err) != DW_DLV_OK){
-    perror("Error in getting low pc\n");
+    fprintf(stderr, "Error in getting low pc\n");
+    return -1;
   }
 
   Dwarf_Attribute highAttr;
   if(dwarf_attr(*fn_die, DW_AT_high_pc, &highAttr, &err) != DW_DLV_OK){
-    perror("Error in getting high pc attribute\n");
+    fprintf(stderr, "Error in getting high pc\n");
+    return -1;
   }
 
   Dwarf_Half highForm;
   if(dwarf_whatform(highAttr, &highForm, &err) != DW_DLV_OK){
     perror("Error in getting high pc form\n");
+    return -1;
   }
 
 
@@ -65,6 +67,7 @@ void pc_range(Dwarf_Debug dgb, Dwarf_Die* fn_die, Dwarf_Addr* lowPC, Dwarf_Addr*
     } else if(offset <= 0){
       // Function will never have negative program count.
       perror("Form data not read");
+      return -1;
     }
 
     Dwarf_Addr high = *lowPC;
@@ -77,7 +80,7 @@ void pc_range(Dwarf_Debug dgb, Dwarf_Die* fn_die, Dwarf_Addr* lowPC, Dwarf_Addr*
     }
   }
 
-  return;
+  return DW_DLV_OK;
 
 }
 
@@ -85,7 +88,7 @@ int dwarf_read(const char* executable, GCContext** context){
 
   Dwarf_Debug dbg;
   FILE* dwarfFile;
-  Dwarf_Error err;
+  Dwarf_Error err = 0;
 
   if(types_init(executable, &dbg, &dwarfFile, &err) != DW_DLV_OK){
     fprintf(stderr, "Error opening dwarf file handle\n");
@@ -163,25 +166,30 @@ int dwarf_read(const char* executable, GCContext** context){
 int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwarf_Error* err){
   Dwarf_Half tag;
 
-#ifdef DEBUG
-  char* dieName;
-  if(dwarf_diename(child_die, &dieName, err) != DW_DLV_OK){
-    fprintf(stderr, "Error reading function name\n");
-    return -1;
-  }
-#endif
-
   if (dwarf_tag(child_die, &tag, err) != DW_DLV_OK){
     perror("Error in dwarf_tag\n");
   }
 
   if(tag == DW_TAG_subprogram){
-    Function* fun;
+    Function* fun = calloc(sizeof(Function), 1);
+
+#ifdef DEBUG
+    {
+      int status = dwarf_diename(child_die, &(fun->dieName), err);
+      if(status == DW_DLV_NO_ENTRY){
+        fprintf(stderr, "Error no given function name\n");
+        return -1;
+      } else if(status == DW_DLV_ERROR){
+        fprintf(stderr, "Error given argument was null\n");
+        return -1;
+      }
+    }
+#endif
 
     dwarf_read_function(dbg, &child_die, &fun, err);
 
 #ifdef DEBUG
-    fn_type->dieName = dieName;
+
 #endif
 
     arrayAppend(context->functions, fun);
@@ -197,10 +205,6 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
 
     Type* type = calloc(sizeof(Type), 1);
     type->key = typeKey;
-
-#ifdef DEBUG
-    type->dieName = dieName;
-#endif
         
     void* info;
 
@@ -209,7 +213,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
       type->category = STRUCTURE_TYPE;
       type->info.structInfo = info;
 
-    } else  if(tag == DW_TAG_pointer_type) {
+    } else  if(tag == DW_TAG_union_type) {
       dwarf_read_union(dbg, &child_die, (UnionInfo**)&info, err);
       type->category = UNION_TYPE;
       type->info.unionInfo = info;
@@ -223,7 +227,13 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
       dwarf_read_array(dbg, &child_die, (ArrayInfo**)&info, err);
       type->category = ARRAY_TYPE;
       type->info.pointerArrayInfo = info;
-
+    } else if(tag == DW_TAG_base_type ||
+              tag == DW_TAG_enumeration_type ||
+              tag == DW_TAG_typedef ||
+              tag == DW_TAG_const_type){
+      // NOP
+    } else if(tag == DW_TAG_variable){
+      // TODO: Track global pointers
     } else {
       fprintf(stderr, "Missed die type: %x\n", tag);
       return -1;
@@ -233,10 +243,10 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
         
     // What to do if someone defines a type inside of a function?
     // We'll handle that later. Globally scope the type, since the
-    // dwarf type offset is unique.
-        
-
+    // dwarf type offset is unique.        
   }
+
+  return DW_DLV_OK;
 }
   
 int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Function** fun, Dwarf_Error* err){
@@ -255,14 +265,24 @@ int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Function** fun, Dwar
 
 
 int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwarf_Error* err){
+  Dwarf_Attribute location_check;
+
   Dwarf_Addr lowPC = 0;
   Dwarf_Addr highPC = 0;
-
-  pc_range(dbg, top_die, &lowPC, &highPC);
+  
+  if(dwarf_attr(*top_die, DW_AT_ranges, &location_check, err) == DW_DLV_OK){
+    // TODO
+    fprintf(stderr, "I need to figure out how to parse ranges\n");
+  } else {
+    if(pc_range(dbg, top_die, &lowPC, &highPC) != DW_DLV_OK){
+      fprintf(stderr, "Error getting high/lowpc for scope\n");
+      return -1;
+    }
+  }
 
   void* castedLowPC = (void *)lowPC;
   void* castedHighPC = (void *)highPC;
-
+  
   *top_scope = calloc(sizeof(Scope), 1);
 
   Dwarf_Die child_die;
@@ -343,6 +363,8 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
       done = true;
     }
   }
+  
+  return DW_DLV_OK;
 
 }
 
@@ -383,7 +405,7 @@ int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* root_die, RootInfo** info, Dwarf
 int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structInfo, Dwarf_Error* err){
   #ifdef DEBUG
   Dwarf_Half type_tag;
-  if(dwarf_tag(type_die, &type_tag, &err) != DW_DLV_OK){
+  if(dwarf_tag(*type_die, &type_tag, err) != DW_DLV_OK){
     perror("Error in dwarf_tag\n");
     return -1;
   }
@@ -395,17 +417,25 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
 
   Dwarf_Die child_die;
 
-  if(dwarf_child(*type_die, &child_die, err) == DW_DLV_ERROR){
+  int status = dwarf_child(*type_die, &child_die, err);
+  bool done = false;
+  
+  if(status == DW_DLV_ERROR){
     perror("Error getting child of CU DIE\n");
     return -1;
+  } else if(status == DW_DLV_NO_ENTRY){
+    done = true;
   }
-
-  bool done = false;
 
   while(!done){
 
     #ifdef DEBUG
-    assert(DW_TAG_member == tag);
+    Dwarf_Half child_tag;
+    if(dwarf_tag(child_die, &child_tag, err) != DW_DLV_OK){
+      perror("Error in dwarf_tag\n");
+      return -1;
+    }
+    assert(DW_TAG_member == child_tag);
     #endif
 
     Dwarf_Off type_key;
@@ -419,8 +449,8 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
       
       int field_offset;
       // Casting from unsigned long long, assuming offsets aren't more than an int can hold.
-      if(dwarf_read_member_offset(dbg, &child_die, &field_offset, err) != 0){
-        fprintf(stderr, "Error here");
+      if(dwarf_read_member_offset(dbg, &child_die, &field_offset, err) != DW_DLV_OK){
+        fprintf(stderr, "Error in reading member offset\n");
         return -1;
       }
 
@@ -447,7 +477,7 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
 int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwarf_Error* err){
   #ifdef DEBUG
   Dwarf_Half type_tag;
-  if(dwarf_tag(type_die, &type_tag, &err) != DW_DLV_OK){
+  if(dwarf_tag(*type_die, &type_tag, err) != DW_DLV_OK){
     perror("Error in dwarf_tag\n");
     return -1;
   }
@@ -470,7 +500,7 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwa
 
   #ifdef DEBUG
   Dwarf_Half subrange_type_tag;
-  if(dwarf_tag(subrange_die, &type_tag, &err) != DW_DLV_OK){
+  if(dwarf_tag(subrange_die, &type_tag, err) != DW_DLV_OK){
     perror("Error in dwarf_tag\n");
     return -1;
   }
@@ -501,7 +531,7 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwa
 int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info, Dwarf_Error* err){
   #ifdef DEBUG
   Dwarf_Half type_tag;
-  if(dwarf_tag(type_die, &type_tag, &err) != DW_DLV_OK){
+  if(dwarf_tag(*type_die, &type_tag, err) != DW_DLV_OK){
     perror("Error in dwarf_tag\n");
     return -1;
   }
@@ -509,33 +539,44 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info,
   #endif
 
   Dwarf_Die* target_die = type_die;
-  Dwarf_Off target_off;
+  Dwarf_Off target_off = 0;
   Dwarf_Half target_type = DW_TAG_pointer_type;
 
   int indirectionCount = 0;
 
+  Dwarf_Attribute type_check;
+
+  bool void_star = false;
+  
   while(target_type == DW_TAG_pointer_type){
-    indirectionCount++;
 
-    if(type_off(target_die, &target_off, err) != DW_DLV_OK){
-      fprintf(stderr, "Error getting offset of target die");
-      return -1;
-    }
+    if(dwarf_attr(*target_die, DW_AT_type, &type_check, err) == DW_DLV_NO_ENTRY){
+      void_star = true;
+      break;
+    } else {
+      indirectionCount++;
+      
+      if(type_off(target_die, &target_off, err) != DW_DLV_OK){
+        fprintf(stderr, "Error getting offset of target die: %s\n", dwarf_errmsg(*err));
+        return -1;
+      }
 
-    if(dwarf_offdie(dbg, target_off, target_die, err) != DW_DLV_OK){
-      fprintf(stderr, "Error in getting die at offset: %s\n", dwarf_errmsg(*err));
-      return -1;
-    }
+      if(dwarf_offdie(dbg, target_off, target_die, err) != DW_DLV_OK){
+        fprintf(stderr, "Error in getting die at offset: %s\n", dwarf_errmsg(*err));
+        return -1;
+      }
 
-    if(dwarf_tag(*target_die, &target_type, err) != DW_DLV_OK){
-      perror("Error in dwarf_tag\n");
-      return -1;
+      if(dwarf_tag(*target_die, &target_type, err) != DW_DLV_OK){
+        perror("Error in dwarf_tag\n");
+        return -1;
+      }
     }
   }
 
   *info = calloc(sizeof(PointerInfo), 1);
   (*info)->layersOfIndirection = indirectionCount;
   (*info)->targetType = target_off;
+  (*info)->void_star = void_star;
 
   return DW_DLV_OK;
 }
@@ -581,6 +622,8 @@ int dwarf_read_member_offset(Dwarf_Debug dbg, Dwarf_Die* member_die, int* offset
     }
     
     *offset = (int)dwarf_offset;
+
+    return DW_DLV_OK;  
 }
 
 int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo, Dwarf_Error* err){
@@ -625,7 +668,6 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo
     }
   }
 
-  
-  
+  return DW_DLV_OK;  
 }
 

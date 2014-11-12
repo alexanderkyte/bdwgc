@@ -35,10 +35,10 @@ static const uint8_t x86_dwarf_to_libunwind_regnum[19] = {
 };
 
 
-void pc_range(Dwarf_Debug dgb,
-              Dwarf_Die* fn_die,
-              Dwarf_Addr* lowPC,
-              Dwarf_Addr* highPC);
+int pc_range(Dwarf_Debug dbg,
+             Dwarf_Die* fn_die,
+             Dwarf_Addr* lowPC,
+             Dwarf_Addr* highPC);
 
 int dwarf_backtrace(CallStack** callStack);
 
