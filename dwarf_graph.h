@@ -1,24 +1,21 @@
 #ifndef DWARF_GRAPH
 #define DWARF_GRAPH
 
+#include <stdbool.h>
+
 typedef struct HeapArray {
   void* contents;
   int capacity;
   int count;
 } *Array;
 
-
-void arrayAppend(Array array, void* item){
-  if(array->count >= array->capacity){
-    array->capacity *= 2;
-    array->contents = realloc(array->contents, array->capacity);
-  }
-  array->contents[array->count] = item;
-}
-
+void arrayAppend(Array array, void* item);
 Array newHeapArray(int capacity);
-void resizeArray(Array array);
 
+typedef Dwarf_Off TypeKey;
+
+#define DEFAULT_SCOPE_CONTENTS_SIZE 5
+#define DEFAULT_SCOPE_CHILDREN_SIZE 2
 typedef struct Scope {
   Array contents; // Contains variables
   Array children; //
@@ -33,9 +30,17 @@ typedef struct Function {
 #endif
 } Function;
 
-int findFunction // binary search on lower / upper pc
+typedef struct {
+  Dwarf_Locdesc** location;
+  int expression_count;
+  TypeKey type;
+} RootInfo;
 
-enum {
+int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* child_die, RootInfo** info, Dwarf_Error* err);
+
+int findFunction(void* PC); // find function with binary search of array
+
+typedef enum {
   POINTER_TYPE,
   STRUCTURE_TYPE,
   UNION_TYPE,
@@ -52,33 +57,33 @@ enum {
 
 typedef struct {
   int layersOfIndirection;
-  Type* targetType;
+  TypeKey targetType;
 } PointerInfo;
 
-typedef struct {
-  Dwarf_Locdesc** location;
-  int expression_count;
-  Dwarf_Off type;
-} Root;
+#define DEFAULT_STRUCT_MEMBER_LIST_SIZE 10
+
+typedef struct StructMember {
+  int offset;
+  TypeKey type;
+} StructMember;
 
 typedef struct {
   // These two are parallel arrays
-  HeapArray* pointerTypes; // Contains type pointers for elements
-  HeapArray* pointerOffsets; // The offsets from struct base
+  Array members;
 } StructInfo;
 
 typedef struct {
-  Type* alternatives;
+  TypeKey* alternatives;
 } UnionInfo;
 
 typedef struct {
-  Type* elementTypes;
+  TypeKey elementTypes;
   int count;
 } ArrayInfo;
 
 typedef struct Type {
-  TypeCategory type;
-  Dwarf_Offset offset;
+  TypeCategory category;
+  TypeKey key;
 #ifdef DEBUG
   char* dieName;
 #endif
@@ -87,15 +92,42 @@ typedef struct Type {
     StructInfo* structInfo;
     UnionInfo* unionInfo;
     ArrayInfo* pointerArrayInfo;
-  }
+  } info;
 } Type;
 
-int insertIntoTypeTree(Type* root, Type* item);
+int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Function** fun, Dwarf_Error* err);
+int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwarf_Error* err);
+int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structInfo, Dwarf_Error* err);
+int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo, Dwarf_Error* err);
+int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** pointerInfo, Dwarf_Error* err);
+int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** arrayInfo, Dwarf_Error* err);
+int dwarf_read_member_offset(Dwarf_Debug dbg, Dwarf_Die* member_die, int* offset, Dwarf_Error* err);
 
-int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Array functions, Dwarf_Err* err);
-int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* fn_die, Array functions, Dwarf_Err* err);
-int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, Array types, Dwarf_Err* err);
-int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, Array types, Dwarf_Err* err);
-int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, Array types, Dwarf_Err* err);
+#define INITIAL_TYPE_LIST_SIZE 20
+#define INITIAL_FUNCTION_LIST_SIZE 20
+
+typedef struct {
+  Array types;
+  Array functions;
+} GCContext;
+
+int finalizeTypes(GCContext* context);
+
+typedef struct {
+  unw_cursor_t cursor;
+  int function_key;
+  Dwarf_Addr pc;
+  Dwarf_Addr sp;
+} LiveFunction;
+
+typedef struct {
+  int count;
+  int capacity;
+  LiveFunction *stack;
+} CallStack;
+
+typedef struct {
+  Array roots; // Fiiled with RootInfo pointers.
+} Roots;
 
 #endif

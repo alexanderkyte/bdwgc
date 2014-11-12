@@ -31,13 +31,11 @@ int main(int argc, char** argv){
   void* test = (void*)999;
 
   printf("test location: %p\n", &test);
-  
-  types_init(argv[0]);
+
+  GCContext context;
+  dwarf_read(argv[0], &context);
   printf("init done\n");
-  TypedPointers roots;
-  type_roots(&roots);
   printf("got roots\n");
-  types_finalize();
 
   return y + z + x + fact(5) + 1;
 }
