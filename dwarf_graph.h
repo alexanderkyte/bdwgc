@@ -111,6 +111,8 @@ typedef struct {
   Array functions;
 } GCContext;
 
+int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwarf_Error* err);
+
 int finalizeTypes(GCContext* context);
 
 typedef struct {

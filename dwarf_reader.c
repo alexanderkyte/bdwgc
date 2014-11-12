@@ -92,15 +92,15 @@ int dwarf_read(const char* executable, GCContext** context){
     return -1;
   }
 
-
   Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
   Dwarf_Half version_stamp, address_size;
   Dwarf_Die no_die = 0, cu_die, child_die;
   
-  Array types = newHeapArray(INITIAL_TYPE_LIST_SIZE);
-  Array functions = newHeapArray(INITIAL_FUNCTION_LIST_SIZE);
-
   bool done = false;
+
+  *context = calloc(sizeof(GCContext), 1);
+  (*context)->types = newHeapArray(INITIAL_TYPE_LIST_SIZE);
+  (*context)->functions = newHeapArray(INITIAL_FUNCTION_LIST_SIZE);
 
   while(!done){
     int status = dwarf_next_cu_header(dbg,
@@ -133,109 +133,112 @@ int dwarf_read(const char* executable, GCContext** context){
       perror("Error getting child of CU DIE\n");
       return -1;
     }
-
-
+    
     /* Now go over all children DIEs */
     bool doneWithCU = false;
 
     while(!doneWithCU){
-      Dwarf_Half tag;
+      if(dwarf_type_die(dbg, *context, child_die, &err) != DW_DLV_OK){
+        fprintf(stderr, "Error while typing die: %s\n", dwarf_errmsg(err));
+      }
 
-      #ifdef DEBUG
-      char* dieName;
-      if(dwarf_diename(child_die, &dieName, err) != DW_DLV_OK){
-        fprintf(stderr, "Error reading function name\n");
+      int rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
+      if (rc == DW_DLV_ERROR){
+        perror("Error getting sibling of DIE\n");
         return -1;
-      }
-      #endif
-
-      if (dwarf_tag(child_die, &tag, &err) != DW_DLV_OK){
-        perror("Error in dwarf_tag\n");
-      }
-
-      if(tag == DW_TAG_subprogram){
-        Function* fun;
-
-        dwarf_read_function(dbg, &child_die, &fun, &err);
-
-        #ifdef DEBUG
-        fn_type->dieName = dieName;
-        #endif
-
-        arrayAppend(functions, fun);
-
-      } else {
-
-        Dwarf_Off typeKey;
-
-        if(dwarf_dieoffset(child_die, &typeKey, &err) != DW_DLV_OK){
-          fprintf(stderr, "Error getting die offset.\n");
-          return -1;
-        }
-
-        Type* type = calloc(sizeof(Type), 1);
-        type->key = typeKey;
-
-        #ifdef DEBUG
-        type->dieName = dieName;
-        #endif
-        
-        void* info;
-
-        if(tag == DW_TAG_structure_type) {
-          dwarf_read_struct(dbg, &child_die, (StructInfo**)&info, &err);
-          type->category = STRUCTURE_TYPE;
-          type->info.structInfo = info;
-
-        } else  if(tag == DW_TAG_pointer_type) {
-          dwarf_read_union(dbg, &child_die, (UnionInfo**)&info, &err);
-          type->category = UNION_TYPE;
-          type->info.unionInfo = info;
-          
-        } else  if(tag == DW_TAG_pointer_type) {
-          dwarf_read_pointer(dbg, &child_die, (PointerInfo**)&info, &err);
-          type->category = POINTER_TYPE;
-          type->info.pointerInfo = info;
-
-        } else if(tag == DW_TAG_array_type) {
-          dwarf_read_array(dbg, &child_die, (ArrayInfo**)&info, &err);
-          type->category = ARRAY_TYPE;
-          type->info.pointerArrayInfo = info;
-
-        } else {
-          fprintf(stderr, "Missed die type: %x\n", tag);
-          return -1;
-        }
-
-        arrayAppend(types, type);
-        
-        // What to do if someone defines a type inside of a function?
-        // We'll handle that later. Globally scope the type, since the
-        // dwarf type offset is unique.
-        
-        int rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
-        if (rc == DW_DLV_ERROR){
-          perror("Error getting sibling of DIE\n");
-          return -1;
-        } else if (rc == DW_DLV_NO_ENTRY){
-          doneWithCU = true;
-        }
-
+      } else if (rc == DW_DLV_NO_ENTRY){
+        doneWithCU = true;
       }
     }
+  }
 
-    *context = calloc(sizeof(GCContext), 1);
-    (*context)->types = types;
-    (*context)->functions = functions;
+  if(types_finalize(dbg, dwarfFile, &err) != 0){
+    fprintf(stderr, "Error closing dwarf file handle\n");
+    return -1;
+  }
+  
+  return 0;
+}
 
-    if(types_finalize(dbg, dwarfFile, &err) != 0){
-      fprintf(stderr, "Error closing dwarf file handle\n");
+int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwarf_Error* err){
+  Dwarf_Half tag;
+
+#ifdef DEBUG
+  char* dieName;
+  if(dwarf_diename(child_die, &dieName, err) != DW_DLV_OK){
+    fprintf(stderr, "Error reading function name\n");
+    return -1;
+  }
+#endif
+
+  if (dwarf_tag(child_die, &tag, err) != DW_DLV_OK){
+    perror("Error in dwarf_tag\n");
+  }
+
+  if(tag == DW_TAG_subprogram){
+    Function* fun;
+
+    dwarf_read_function(dbg, &child_die, &fun, err);
+
+#ifdef DEBUG
+    fn_type->dieName = dieName;
+#endif
+
+    arrayAppend(context->functions, fun);
+
+  } else {
+
+    Dwarf_Off typeKey;
+
+    if(dwarf_dieoffset(child_die, &typeKey, err) != DW_DLV_OK){
+      fprintf(stderr, "Error getting die offset.\n");
       return -1;
     }
 
-    return 0;
-  }
+    Type* type = calloc(sizeof(Type), 1);
+    type->key = typeKey;
 
+#ifdef DEBUG
+    type->dieName = dieName;
+#endif
+        
+    void* info;
+
+    if(tag == DW_TAG_structure_type) {
+      dwarf_read_struct(dbg, &child_die, (StructInfo**)&info, err);
+      type->category = STRUCTURE_TYPE;
+      type->info.structInfo = info;
+
+    } else  if(tag == DW_TAG_pointer_type) {
+      dwarf_read_union(dbg, &child_die, (UnionInfo**)&info, err);
+      type->category = UNION_TYPE;
+      type->info.unionInfo = info;
+          
+    } else  if(tag == DW_TAG_pointer_type) {
+      dwarf_read_pointer(dbg, &child_die, (PointerInfo**)&info, err);
+      type->category = POINTER_TYPE;
+      type->info.pointerInfo = info;
+
+    } else if(tag == DW_TAG_array_type) {
+      dwarf_read_array(dbg, &child_die, (ArrayInfo**)&info, err);
+      type->category = ARRAY_TYPE;
+      type->info.pointerArrayInfo = info;
+
+    } else {
+      fprintf(stderr, "Missed die type: %x\n", tag);
+      return -1;
+    }
+
+    arrayAppend(context->types, type);
+        
+    // What to do if someone defines a type inside of a function?
+    // We'll handle that later. Globally scope the type, since the
+    // dwarf type offset is unique.
+        
+
+  }
+}
+  
 int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Function** fun, Dwarf_Error* err){
   Scope* top_scope;
 
@@ -249,6 +252,7 @@ int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Function** fun, Dwar
 
   return DW_DLV_OK;
 }
+
 
 int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwarf_Error* err){
   Dwarf_Addr lowPC = 0;
@@ -289,7 +293,7 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
       Dwarf_Die type_die;
       Dwarf_Half type_tag;
 
-      if(type_of(dbg, child_die, &type_die, err) != DW_DLV_OK){
+      if(type_of(dbg, &child_die, &type_die, err) != DW_DLV_OK){
         fprintf(stderr, "Error when getting scope variable's type tag.\n");
         return -1;
       }
@@ -342,10 +346,11 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
 
 }
 
-int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* root_die, Array roots, Dwarf_Error* err){
+
+int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* root_die, RootInfo** info, Dwarf_Error* err){
   Dwarf_Attribute die_location;
 
-  if(dwarf_attr(child_die, DW_AT_location, &die_location, err) != DW_DLV_OK){
+  if(dwarf_attr(*root_die, DW_AT_location, &die_location, err) != DW_DLV_OK){
     perror("Error in getting location attribute\n");
     return -1;
   }
@@ -361,17 +366,19 @@ int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* root_die, Array roots, Dwarf_Err
 
   Dwarf_Off ref_off = 0;
 
-  type_off(child_die, &ref_off, err);
+  if(type_off(root_die, &ref_off, err) != DW_DLV_OK){
+    fprintf(stderr, "Error getting offset\n");
+    return -1;
+  }
 
-  RootInfo* root = calloc(sizeof(RootInfo), 1);
-  root->location = llbufarray;
-  root->expression_count = number_of_expressions;
-  root->type = ref_off;
-
-  arrayAppend(roots, root);
+  *info = calloc(sizeof(RootInfo), 1);
+  (*info)->location = llbufarray;
+  (*info)->expression_count = number_of_expressions;
+  (*info)->type = ref_off;
 
   return DW_DLV_OK;
 }
+
 
 int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structInfo, Dwarf_Error* err){
   #ifdef DEBUG
@@ -403,12 +410,12 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
 
     Dwarf_Off type_key;
     
-    if(type_off(child_die, &type_key, err) != 0){
+    if(type_off(&child_die, &type_key, err) != 0){
       fprintf(stderr, "Error getting type offset of struct member\n");
       return -1;
     }
     
-    if(is_pointer(child_die, err)){
+    if(is_pointer(dbg, &child_die, err)){
       
       int field_offset;
       // Casting from unsigned long long, assuming offsets aren't more than an int can hold.
@@ -436,7 +443,7 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
   return DW_DLV_OK;
 
 }
- 
+
 int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwarf_Error* err){
   #ifdef DEBUG
   Dwarf_Half type_tag;
@@ -448,17 +455,17 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwa
   #endif
 
   Dwarf_Off content_type_off;
-  if(type_off(type_die, content_type_off, err) != DW_DLV_OK){
+  if(type_off(type_die, &content_type_off, err) != DW_DLV_OK){
     fprintf(stderr, "error getting offset\n");
     return -1;
   }
 
   Dwarf_Die subrange_die;
 
-  /* Expect the CU DIE to have children */
-  if(dwarf_child(type_die, &subrange_die, err) == DW_DLV_ERROR){
+  // Expect the CU DIE to have children 
+  if(dwarf_child(*type_die, &subrange_die, err) == DW_DLV_ERROR){
     perror("Error getting child of function DIE\n");
-    return;
+    return -1;
   }
 
   #ifdef DEBUG
@@ -470,16 +477,15 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwa
   assert(type_tag == DW_TAG_subrange_type);
   #endif
 
-  Dwarf_Attributes upper_bound;
+  Dwarf_Attribute upper_bound;
 
   if(dwarf_attr(subrange_die, DW_AT_upper_bound, &upper_bound, err) != DW_DLV_OK){
-    fprintf(stderr, "No type information associated with die\n");
-    fprintf(stderr, "Error %d in getting type attribute: %s\n", status, dwarf_errmsg(*err));
+    fprintf(stderr, "Error in getting type attribute: %s\n", dwarf_errmsg(*err));
     return -1;
   }
 
   Dwarf_Unsigned count;
-  if(dwarf_formudata(upper_bound, count, err) != DW_DLV_OK){
+  if(dwarf_formudata(upper_bound, &count, err) != DW_DLV_OK){
     fprintf(stderr, "Error getting upper bound of array\n");
     return -1;
   }
@@ -490,6 +496,7 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwa
 
   return DW_DLV_OK;
 }
+
 
 int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info, Dwarf_Error* err){
 
@@ -510,14 +517,18 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info,
 
   while(target_type == DW_TAG_pointer_type){
     indirectionCount++;
-    type_off(child_die, &target_off, err);
 
-    if(dwarf_offdie(dbg, target_off, target_die, err) != DW_DLV_OK){
-      fprintf(stderr, "Error %d in getting die at offset: %s\n", status, dwarf_errmsg(*err));
-      return status;
+    if(type_off(target_die, &target_off, err) != DW_DLV_OK){
+      fprintf(stderr, "Error getting offset of target die");
+      return -1;
     }
 
-    if(dwarf_tag(target_die, &target_type, &err) != DW_DLV_OK){
+    if(dwarf_offdie(dbg, target_off, target_die, err) != DW_DLV_OK){
+      fprintf(stderr, "Error in getting die at offset: %s\n", dwarf_errmsg(*err));
+      return -1;
+    }
+
+    if(dwarf_tag(*target_die, &target_type, err) != DW_DLV_OK){
       perror("Error in dwarf_tag\n");
       return -1;
     }
@@ -529,3 +540,4 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info,
 
   return DW_DLV_OK;
 }
+

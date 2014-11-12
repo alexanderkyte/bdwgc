@@ -32,7 +32,7 @@ int main(int argc, char** argv){
 
   printf("test location: %p\n", &test);
 
-  GCContext context;
+  GCContext* context;
   dwarf_read(argv[0], &context);
   printf("init done\n");
   printf("got roots\n");

@@ -26,7 +26,14 @@
 
 #include "dwarf_graph.h"
 
-const uint8_t x86_dwarf_to_libunwind_regnum[19];
+static const uint8_t x86_dwarf_to_libunwind_regnum[19] = {
+  UNW_X86_EAX, UNW_X86_ECX, UNW_X86_EDX, UNW_X86_EBX,
+  UNW_X86_ESP, UNW_X86_EBP, UNW_X86_ESI, UNW_X86_EDI,
+  UNW_X86_EIP, UNW_X86_EFLAGS, UNW_X86_TRAPNO,
+  UNW_X86_ST0, UNW_X86_ST1, UNW_X86_ST2, UNW_X86_ST3,
+  UNW_X86_ST4, UNW_X86_ST5, UNW_X86_ST6, UNW_X86_ST7
+};
+
 
 void pc_range(Dwarf_Debug dgb,
               Dwarf_Die* fn_die,
@@ -35,12 +42,7 @@ void pc_range(Dwarf_Debug dgb,
 
 int dwarf_backtrace(CallStack** callStack);
 
-int type_of(Dwarf_Debug dbg,
-           Dwarf_Die die,
-           Dwarf_Die* type_die,
-           Dwarf_Error* err);
-
-bool is_pointer(Dwarf_Die* die, Dwarf_Error* err);
+bool is_pointer(Dwarf_Debug dbg, Dwarf_Die* die, Dwarf_Error* err);
 int type_off(Dwarf_Die* die, Dwarf_Off* ref_off, Dwarf_Error* err);
 int type_of(Dwarf_Debug dbg, Dwarf_Die* die, Dwarf_Die* type_die, Dwarf_Error* err);
 
