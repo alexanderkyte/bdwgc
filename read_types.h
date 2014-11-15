@@ -46,17 +46,16 @@ bool is_pointer(Dwarf_Debug dbg, Dwarf_Die* die, Dwarf_Error* err);
 int type_off(Dwarf_Die* die, Dwarf_Off* ref_off, Dwarf_Error* err);
 int type_of(Dwarf_Debug dbg, Dwarf_Die* die, Dwarf_Die* type_die, Dwarf_Error* err);
 
-int var_location(Dwarf_Debug dbg,
-                LiveFunction* fun,
-                Dwarf_Die* child_die,
-                void** location,
-                Dwarf_Error* err);
+int var_location(LiveFunction* fun,
+                 Dwarf_Locdesc** location_expression,
+                 int expression_count,
+                 void** location);
 
-// CallStack and context are in parameters, roots are outparameters
-int get_roots(CallStack* callStack, GCContext* context, Roots* roots);
-
-int get_type(TypeKey key, Type* type);
 int dwarf_read(const char* executable, GCContext** context);
 
+#define DEFAULT_ROOT_COUNT 25
+
+// CallStack and context are in parameters, roots are outparameters
+int get_roots(CallStack* callStack, GCContext* context, Roots** roots);
 
 #endif

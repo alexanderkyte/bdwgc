@@ -155,6 +155,8 @@ int dwarf_read(const char* executable, GCContext** context){
     }
   }
 
+  printf("structures created\n");
+  
   if(types_finalize(dbg, dwarfFile, &err) != 0){
     fprintf(stderr, "Error closing dwarf file handle\n");
     return -1;
@@ -204,7 +206,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
     }
 
     Type* type = calloc(sizeof(Type), 1);
-    type->key = typeKey;
+    type->key.offset = typeKey;
         
     void* info;
 
@@ -248,7 +250,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
 
   return DW_DLV_OK;
 }
-  
+
 int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die* fn_die, Function** fun, Dwarf_Error* err){
   Scope* top_scope;
 
@@ -271,7 +273,21 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
   Dwarf_Addr highPC = 0;
   
   if(dwarf_attr(*top_die, DW_AT_ranges, &location_check, err) == DW_DLV_OK){
-    // TODO
+     /* Dwarf_Unsigned original_off = 0; */
+                  
+     /* int fres = dwarf_global_formref(location_check, &original_off, err); */
+     /* if (fres == DW_DLV_OK) { */
+     /*     Dwarf_Ranges *rangeset = 0; */
+     /*     Dwarf_Signed rangecount = 0; */
+     /*     Dwarf_Unsigned bytecount = 0; */
+     /*     int rres = dwarf_get_ranges_a(dbg,original_off, */
+     /*         die,  */
+     /*         &rangeset, */
+     /*         &rangecount,&bytecount,&err); */
+     /* } else { */
+     /*   fprintf(stderr, "An error occured reading ranges in scope\n"); */
+     /* } */
+
     fprintf(stderr, "I need to figure out how to parse ranges\n");
   } else {
     if(pc_range(dbg, top_die, &lowPC, &highPC) != DW_DLV_OK){
@@ -396,7 +412,7 @@ int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* root_die, RootInfo** info, Dwarf
   *info = calloc(sizeof(RootInfo), 1);
   (*info)->location = llbufarray;
   (*info)->expression_count = number_of_expressions;
-  (*info)->type = ref_off;
+  (*info)->type.offset = ref_off;
 
   return DW_DLV_OK;
 }
@@ -455,7 +471,7 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
       }
 
       StructMember* member = calloc(sizeof(StructMember), 1);
-      member->type = type_key;
+      member->type.offset = type_key;
       member->offset = field_offset;
       
       arrayAppend((*structInfo)->members, (void *)member);
@@ -575,7 +591,7 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info,
 
   *info = calloc(sizeof(PointerInfo), 1);
   (*info)->layersOfIndirection = indirectionCount;
-  (*info)->targetType = target_off;
+  (*info)->targetType.offset = target_off;
   (*info)->void_star = void_star;
 
   return DW_DLV_OK;
@@ -671,3 +687,157 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo
   return DW_DLV_OK;  
 }
 
+
+void update_index(Array types, TypeKey* offset, int limit){
+  #ifdef DEBUG
+  assert(limit <= types->count);
+  #endif
+
+  for(int i=0; i < limit; i++){
+    if( ((Type*)types->contents[i])->key.offset == offset->offset){
+      offset->index = i;
+      return;
+    }
+  }
+  
+  fprintf(stderr, "Could not find the type offset in the type list");
+  exit(1);
+}
+
+void compress_type_table(GCContext* context){
+
+  // Update all type indices
+  for(int i=0; i < context->types->count; i++){
+    Type* type = (Type *)context->types->contents[i];
+    
+    switch(type->category){
+    case POINTER_TYPE:
+      update_index(context->types, &(type->info.pointerInfo->targetType), i);
+      break;
+    case STRUCTURE_TYPE:
+      for(int i=0; i < type->info.structInfo->members->count; i++){
+        update_index(context->types, &( ((StructMember*)type->info.structInfo->members->contents[i])->type ), i);
+      }
+      break;
+    case UNION_TYPE:
+      for(int i=0; i < type->info.unionInfo->alternatives->count; i++){
+        update_index(context->types, &( ((TypeKey*)(type->info.unionInfo->alternatives->contents))[i] ), i);
+      }
+      break;
+    case ARRAY_TYPE:
+      update_index(context->types, &(type->info.pointerArrayInfo->elementTypes), i);
+      break;
+    }
+  }
+
+  // Update all stack map types.
+  for(int i=0; i < context->functions->count; i++){
+    Function* this = context->functions->contents[i];
+    for(int k=0; k < this->topScope->contents->count; k++){
+      update_index(context->types, &( ((RootInfo*)(this->topScope->contents->contents))[i].type), context->types->count);
+    }
+  }
+}
+
+int cmpFunctions(const void* firstArg, const void* secondArg){
+  Function* first = (Function*)firstArg;
+  Function* second = (Function*)secondArg;
+  int lowDiff = first->topScope->lowPC - second->topScope->lowPC;
+
+  if(lowDiff == 0){
+    int highDiff = first->topScope->highPC - second->topScope->highPC;
+    return highDiff;
+  } else {
+    return lowDiff;
+  }
+}
+
+void sort_functions(GCContext* context){
+  void* base = context->functions->contents;
+  size_t nitems = context->functions->count;
+  size_t size = sizeof(Function *);
+  qsort(base, nitems, size, cmpFunctions);
+}
+
+int finalizeContext(GCContext* context){
+  compress_type_table(context);
+  sort_functions(context);
+}
+
+int findFunction(void* PC, GCContext* context, Function** outValue){
+  int left = 0;
+  int right = context->functions->count;
+  bool found = false;
+  Function* candidate = NULL;
+  
+  while(!found && left < right){
+    int mid = (left+right) / 2;
+    candidate = context->functions->contents[mid];
+    
+    if(candidate->topScope->lowPC <= PC && candidate->topScope->highPC >= PC){
+      found == true;
+    } else if(candidate->topScope->lowPC <= PC && candidate->topScope->highPC <= PC){
+      left = mid + 1;
+    } else if(candidate->topScope->lowPC >= PC){
+      right = mid;
+    } else {
+      fprintf(stderr, "Something has gone very wrong in the binary search for a function.\n");
+      exit(1);
+    }
+  }
+
+  if(found || (candidate && candidate->topScope->lowPC <= PC && candidate->topScope->highPC >= PC)){
+    *outValue = candidate;
+    return 0;
+  } else {
+    *outValue = NULL;
+    return -1;
+  }
+  
+}
+
+void get_scope_roots(LiveFunction* fun, Scope* scope, GCContext* context, Roots* roots){
+
+  Scope** children = (Scope **)scope->children->contents;
+  RootInfo** rootInfo = (RootInfo**)scope->contents->contents;
+  void* pc = (void *)fun->pc;
+  
+  for(int i=0; i < scope->children->count; i++){
+    if(pc >= children[i]->lowPC && pc <= children[i]->highPC){
+      get_scope_roots(fun, children[i], context, roots);
+    }
+  }
+  
+  for(int i=0; i < scope->contents->count; i++){
+    Root* root = calloc(sizeof(Root), 1);
+    root->typeIndex = ((RootInfo**)scope->contents->contents)[i]->type.index;
+    void* location;
+    if(var_location(fun, rootInfo[i]->location, rootInfo[i]->expression_count, root->location) != 0){
+      fprintf(stderr, "Error reading root\n");
+      exit(1);
+    }
+    arrayAppend(roots->roots, root);
+  }
+}
+
+// CallStack and context are in parameters, roots are outparameters
+int get_roots(CallStack* callStack, GCContext* context, Roots** roots){
+  *roots = calloc(sizeof(Roots), 1);
+  (*roots)->roots = newHeapArray(DEFAULT_ROOT_COUNT);
+  
+  for(int i=0; i < callStack->count; i++){
+    LiveFunction* fun = &(callStack->stack[i]);
+
+    Function* outValue = NULL;
+    if(findFunction((void *)fun->pc, context, &outValue) != 0){
+      fprintf(stderr, "Could not find function\n");
+      break;
+    }
+    
+    fun->function = outValue;
+    
+    get_scope_roots(fun, fun->function->topScope, context, *roots);
+  }
+
+  return 0;
+}

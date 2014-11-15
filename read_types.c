@@ -3,9 +3,10 @@
 void arrayAppend(Array array, void* item){
   if(array->count >= array->capacity){
     array->capacity *= 2;
-    array->contents = realloc(array->contents, array->capacity);
+    array->contents = realloc(array->contents, array->capacity * sizeof(void *));
   }
-  ( (void**)array->contents )[array->count] = item;
+  array->contents[array->count] = item;
+  array->count++;
 }
 
 Array newHeapArray(int capacity){
@@ -77,32 +78,12 @@ int type_of(Dwarf_Debug dbg, Dwarf_Die* die, Dwarf_Die* type_die, Dwarf_Error* e
   return DW_DLV_OK;
 }
 
-int var_location(Dwarf_Debug dbg,
-                LiveFunction* fun,
-                Dwarf_Die* child_die,
-                void** location,
-                Dwarf_Error* err){
+int var_location(LiveFunction* fun,
+                 Dwarf_Locdesc** llbufarray,
+                 int expression_count,
+                 void** location){
 
-  // Program counter is return address, so can be used to find
-  // saved registers
-
-  Dwarf_Attribute die_location;
-
-  if(dwarf_attr(*child_die, DW_AT_location, &die_location, err) != DW_DLV_OK){
-    perror("Error in getting location attribute\n");
-    return -1;
-  }
-
-  Dwarf_Locdesc** llbufarray;
-
-  Dwarf_Signed number_of_expressions;
-
-  if(dwarf_loclist_n(die_location, &llbufarray, &number_of_expressions, err) != DW_DLV_OK){
-    perror("Error in getting location attribute\n");
-    return -1;
-  }
-
-  for(int i = 0; i < number_of_expressions; ++i) {
+  for(int i = 0; i < expression_count; ++i) {
     Dwarf_Locdesc* llbuf = llbufarray[i];
 
     Dwarf_Small op = llbuf->ld_s[i].lr_atom;

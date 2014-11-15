@@ -8,7 +8,7 @@
 #include <stdbool.h>
 
 typedef struct HeapArray {
-  void* contents;
+  void** contents;
   int capacity;
   int count;
 } *Array;
@@ -16,13 +16,17 @@ typedef struct HeapArray {
 void arrayAppend(Array array, void* item);
 Array newHeapArray(int capacity);
 
-typedef Dwarf_Off TypeKey;
+typedef union {
+  Dwarf_Off offset;
+  int index;
+} TypeKey;
 
 #define DEFAULT_SCOPE_CONTENTS_SIZE 5
 #define DEFAULT_SCOPE_CHILDREN_SIZE 2
+
 typedef struct Scope {
   Array contents; // Contains variables
-  Array children; //
+  Array children;
   void* lowPC;
   void* highPC;
 } Scope;
@@ -41,8 +45,6 @@ typedef struct {
 } RootInfo;
 
 int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die* child_die, RootInfo** info, Dwarf_Error* err);
-
-int findFunction(void* PC); // find function with binary search of array
 
 typedef enum {
   POINTER_TYPE,
@@ -87,13 +89,13 @@ typedef struct {
   int count;
 } ArrayInfo;
 
-typedef struct Type {
+typedef struct {
   TypeCategory category;
   TypeKey key;
 #ifdef DEBUG
   char** dieName;
 #endif
-  union {
+  union info {
     PointerInfo* pointerInfo;
     StructInfo* structInfo;
     UnionInfo* unionInfo;
@@ -119,11 +121,11 @@ typedef struct {
 
 int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwarf_Error* err);
 
-int finalizeTypes(GCContext* context);
+int finalizeContext(GCContext* context);
 
 typedef struct {
   unw_cursor_t cursor;
-  int function_key;
+  Function* function;
   Dwarf_Addr pc;
   Dwarf_Addr sp;
 } LiveFunction;
@@ -135,7 +137,12 @@ typedef struct {
 } CallStack;
 
 typedef struct {
-  Array roots; // Fiiled with RootInfo pointers.
+  void* location;
+  int typeIndex;
+} Root;
+
+typedef struct {
+  Array roots;
 } Roots;
 
 #endif
