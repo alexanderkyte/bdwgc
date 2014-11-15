@@ -1,6 +1,6 @@
 #include "read_types.h"
 
-int types_init(const char* executableName, Dwarf_Debug* dbg, FILE** dwarfFile, Dwarf_Error* err){  
+int types_init(const char* executableName, Dwarf_Debug* dbg, FILE** dwarfFile, Dwarf_Error* err){
   if (strlen(executableName) < 2) {
     fprintf(stderr, "Expected a program name as argument\n");
     return -1;
@@ -98,7 +98,7 @@ int dwarf_read(const char* executable, GCContext** context){
   Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
   Dwarf_Half version_stamp, address_size;
   Dwarf_Die no_die = 0, cu_die, child_die;
-  
+
   bool done = false;
 
   *context = calloc(sizeof(GCContext), 1);
@@ -136,7 +136,7 @@ int dwarf_read(const char* executable, GCContext** context){
       perror("Error getting child of CU DIE\n");
       return -1;
     }
-    
+
     /* Now go over all children DIEs */
     bool doneWithCU = false;
 
@@ -156,12 +156,12 @@ int dwarf_read(const char* executable, GCContext** context){
   }
 
   printf("structures created\n");
-  
+
   if(types_finalize(dbg, dwarfFile, &err) != 0){
     fprintf(stderr, "Error closing dwarf file handle\n");
     return -1;
   }
-  
+
   return 0;
 }
 
@@ -177,22 +177,24 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
 
 #ifdef DEBUG
     {
-      int status = dwarf_diename(child_die, &(fun->dieName), err);
+      char* nameLoc;
+      int status = dwarf_diename(child_die, &nameLoc, err);
       if(status == DW_DLV_NO_ENTRY){
         fprintf(stderr, "Error no given function name\n");
         return -1;
       } else if(status == DW_DLV_ERROR){
         fprintf(stderr, "Error given argument was null\n");
         return -1;
+      } else {
+        int len = strlen(nameLoc);
+        fun->dieName = calloc(sizeof(char), len);
+        strcpy(fun->dieName, nameLoc);
+        printf("%s recorded\n", fun->dieName);
       }
     }
 #endif
 
     dwarf_read_function(dbg, &child_die, &fun, err);
-
-#ifdef DEBUG
-
-#endif
 
     arrayAppend(context->functions, fun);
 
@@ -207,7 +209,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
 
     Type* type = calloc(sizeof(Type), 1);
     type->key.offset = typeKey;
-        
+
     void* info;
 
     if(tag == DW_TAG_structure_type) {
@@ -219,7 +221,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
       dwarf_read_union(dbg, &child_die, (UnionInfo**)&info, err);
       type->category = UNION_TYPE;
       type->info.unionInfo = info;
-          
+
     } else  if(tag == DW_TAG_pointer_type) {
       dwarf_read_pointer(dbg, &child_die, (PointerInfo**)&info, err);
       type->category = POINTER_TYPE;
@@ -242,10 +244,10 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
     }
 
     arrayAppend(context->types, type);
-        
+
     // What to do if someone defines a type inside of a function?
     // We'll handle that later. Globally scope the type, since the
-    // dwarf type offset is unique.        
+    // dwarf type offset is unique.
   }
 
   return DW_DLV_OK;
@@ -271,10 +273,10 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
 
   Dwarf_Addr lowPC = 0;
   Dwarf_Addr highPC = 0;
-  
+
   if(dwarf_attr(*top_die, DW_AT_ranges, &location_check, err) == DW_DLV_OK){
      /* Dwarf_Unsigned original_off = 0; */
-                  
+
      /* int fres = dwarf_global_formref(location_check, &original_off, err); */
      /* if (fres == DW_DLV_OK) { */
      /*     Dwarf_Ranges *rangeset = 0; */
@@ -290,6 +292,7 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
 
     fprintf(stderr, "I need to figure out how to parse ranges\n");
   } else {
+    printf("Non-ranges seen!\n");
     if(pc_range(dbg, top_die, &lowPC, &highPC) != DW_DLV_OK){
       fprintf(stderr, "Error getting high/lowpc for scope\n");
       return -1;
@@ -298,8 +301,10 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
 
   void* castedLowPC = (void *)lowPC;
   void* castedHighPC = (void *)highPC;
-  
+
   *top_scope = calloc(sizeof(Scope), 1);
+  (*top_scope)->lowPC = castedLowPC;
+  (*top_scope)->highPC = castedHighPC;
 
   Dwarf_Die child_die;
 
@@ -347,14 +352,14 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
         }
 
         RootInfo* info;
-        
+
         if(dwarf_read_root(dbg, &child_die, &info, err) != DW_DLV_OK){
           fprintf(stderr, "Error reading pointer\n");
           return -1;
         }
 
         arrayAppend((*top_scope)->contents, info);
-        
+
       }
       // type has tag pointer type?
 
@@ -379,7 +384,7 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
       done = true;
     }
   }
-  
+
   return DW_DLV_OK;
 
 }
@@ -435,7 +440,7 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
 
   int status = dwarf_child(*type_die, &child_die, err);
   bool done = false;
-  
+
   if(status == DW_DLV_ERROR){
     perror("Error getting child of CU DIE\n");
     return -1;
@@ -455,14 +460,14 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
     #endif
 
     Dwarf_Off type_key;
-    
+
     if(type_off(&child_die, &type_key, err) != 0){
       fprintf(stderr, "Error getting type offset of struct member\n");
       return -1;
     }
-    
+
     if(is_pointer(dbg, &child_die, err)){
-      
+
       int field_offset;
       // Casting from unsigned long long, assuming offsets aren't more than an int can hold.
       if(dwarf_read_member_offset(dbg, &child_die, &field_offset, err) != DW_DLV_OK){
@@ -473,7 +478,7 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die* type_die, StructInfo** structI
       StructMember* member = calloc(sizeof(StructMember), 1);
       member->type.offset = type_key;
       member->offset = field_offset;
-      
+
       arrayAppend((*structInfo)->members, (void *)member);
     }
 
@@ -508,7 +513,7 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die* type_die, ArrayInfo** info, Dwa
 
   Dwarf_Die subrange_die;
 
-  // Expect the CU DIE to have children 
+  // Expect the CU DIE to have children
   if(dwarf_child(*type_die, &subrange_die, err) == DW_DLV_ERROR){
     perror("Error getting child of function DIE\n");
     return -1;
@@ -563,7 +568,7 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info,
   Dwarf_Attribute type_check;
 
   bool void_star = false;
-  
+
   while(target_type == DW_TAG_pointer_type){
 
     if(dwarf_attr(*target_die, DW_AT_type, &type_check, err) == DW_DLV_NO_ENTRY){
@@ -571,7 +576,7 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die* type_die, PointerInfo** info,
       break;
     } else {
       indirectionCount++;
-      
+
       if(type_off(target_die, &target_off, err) != DW_DLV_OK){
         fprintf(stderr, "Error getting offset of target die: %s\n", dwarf_errmsg(*err));
         return -1;
@@ -607,14 +612,14 @@ int dwarf_read_member_offset(Dwarf_Debug dbg, Dwarf_Die* member_die, int* offset
     Dwarf_Half form;
     dwarf_whatform(member_location, &form, err);
 
-    if (form == DW_FORM_data1 || form == DW_FORM_data2 || 
+    if (form == DW_FORM_data1 || form == DW_FORM_data2 ||
         form == DW_FORM_data4 || form == DW_FORM_data8 ||
         form == DW_FORM_udata) {
-      
+
         dwarf_formudata(member_location, &dwarf_offset, 0);
 
     } else if (form == DW_FORM_sdata) {
-      
+
         Dwarf_Signed soffset;
         dwarf_formsdata(member_location, &soffset, 0);
         if (soffset < 0) {
@@ -636,15 +641,15 @@ int dwarf_read_member_offset(Dwarf_Debug dbg, Dwarf_Die* member_die, int* offset
       }
       dwarf_offset = (locdescs[0]->ld_s[0]).lr_number;
     }
-    
+
     *offset = (int)dwarf_offset;
 
-    return DW_DLV_OK;  
+    return DW_DLV_OK;
 }
 
 int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo, Dwarf_Error* err){
   Dwarf_Die child_die;
-  
+
   if(dwarf_child(*type_die, &child_die, err) == DW_DLV_ERROR){
     perror("Error getting child of union DIE\n");
     return -1;
@@ -657,7 +662,7 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo
 
   while(!done){
     Dwarf_Half child_tag;
-    
+
     if(dwarf_tag(child_die, &child_tag, err) != DW_DLV_OK){
       perror("Error in dwarf_tag\n");
       return -1;
@@ -665,16 +670,16 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo
 
     if(child_tag == DW_TAG_member &&
        is_pointer(dbg, &child_die, err)){
-      
+
       Dwarf_Off key;
       if(type_off(&child_die, &key, err) != DW_DLV_OK){
         fprintf(stderr, "Error getting type offset for union member\n");
-        return -1; 
+        return -1;
       }
 
-      arrayAppend((*unionInfo)->alternatives, (void *)key);      
+      arrayAppend((*unionInfo)->alternatives, (void *)key);
     }
-    
+
     int rc = dwarf_siblingof(dbg, child_die, &child_die, err);
     if (rc == DW_DLV_ERROR){
       perror("Error getting sibling of DIE\n");
@@ -684,7 +689,7 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die* type_die, UnionInfo** unionInfo
     }
   }
 
-  return DW_DLV_OK;  
+  return DW_DLV_OK;
 }
 
 
@@ -699,7 +704,7 @@ void update_index(Array types, TypeKey* offset, int limit){
       return;
     }
   }
-  
+
   fprintf(stderr, "Could not find the type offset in the type list");
   exit(1);
 }
@@ -709,7 +714,7 @@ void compress_type_table(GCContext* context){
   // Update all type indices
   for(int i=0; i < context->types->count; i++){
     Type* type = (Type *)context->types->contents[i];
-    
+
     switch(type->category){
     case POINTER_TYPE:
       update_index(context->types, &(type->info.pointerInfo->targetType), i);
@@ -760,6 +765,7 @@ void sort_functions(GCContext* context){
 }
 
 int finalizeContext(GCContext* context){
+  printf("Finalize context called\n");
   compress_type_table(context);
   sort_functions(context);
 }
@@ -769,54 +775,72 @@ int findFunction(void* PC, GCContext* context, Function** outValue){
   int right = context->functions->count;
   bool found = false;
   Function* candidate = NULL;
-  
-  while(!found && left < right){
-    int mid = (left+right) / 2;
-    candidate = context->functions->contents[mid];
-    
-    if(candidate->topScope->lowPC <= PC && candidate->topScope->highPC >= PC){
-      found == true;
-    } else if(candidate->topScope->lowPC <= PC && candidate->topScope->highPC <= PC){
-      left = mid + 1;
-    } else if(candidate->topScope->lowPC >= PC){
-      right = mid;
-    } else {
-      fprintf(stderr, "Something has gone very wrong in the binary search for a function.\n");
-      exit(1);
+
+  /* while(!found && left < right){ */
+  /*   int mid = (left+right) / 2; */
+  /*   candidate = context->functions->contents[mid]; */
+
+  /*   if(candidate->topScope->lowPC <= PC && candidate->topScope->highPC >= PC){ */
+  /*     found == true; */
+  /*   } else if(candidate->topScope->lowPC <= PC && candidate->topScope->highPC <= PC){ */
+  /*     left = mid + 1; */
+  /*   } else if(candidate->topScope->lowPC >= PC){ */
+  /*     right = mid; */
+  /*   } else { */
+  /*     fprintf(stderr, "Something has gone very wrong in the binary search for a function.\n"); */
+  /*     exit(1); */
+  /*   } */
+  /* } */
+
+  /* if(found || (candidate && candidate->topScope->lowPC <= PC && candidate->topScope->highPC >= PC)){ */
+  /*   *outValue = candidate; */
+  /*   return 0; */
+  /* } else { */
+  /*   *outValue = NULL; */
+  /*   return -1; */
+  /* } */
+
+  for(int i=0; i < context->functions->count; i++){
+    Function* fun = context->functions->contents[i];
+    #ifdef DEBUG
+    printf("%s: %p >= %p >= %p\n", fun->dieName, fun->topScope->lowPC, PC, fun->topScope->highPC);
+    #endif
+    if(fun->topScope->lowPC <= PC && fun->topScope->highPC >= PC){
+      *outValue = fun;
+      return 0;
     }
   }
 
-  if(found || (candidate && candidate->topScope->lowPC <= PC && candidate->topScope->highPC >= PC)){
-    *outValue = candidate;
-    return 0;
-  } else {
-    *outValue = NULL;
-    return -1;
-  }
-  
+  return -1;
+
 }
 
 void get_scope_roots(LiveFunction* fun, Scope* scope, GCContext* context, Roots* roots){
 
-  Scope** children = (Scope **)scope->children->contents;
-  RootInfo** rootInfo = (RootInfo**)scope->contents->contents;
-  void* pc = (void *)fun->pc;
-  
-  for(int i=0; i < scope->children->count; i++){
-    if(pc >= children[i]->lowPC && pc <= children[i]->highPC){
-      get_scope_roots(fun, children[i], context, roots);
+  if(scope->children != NULL){
+    Scope** children = (Scope **)scope->children->contents;
+    void* pc = (void *)fun->pc;
+
+    for(int i=0; i < scope->children->count; i++){
+      if(pc >= children[i]->lowPC && pc <= children[i]->highPC){
+        get_scope_roots(fun, children[i], context, roots);
+      }
     }
+
   }
-  
-  for(int i=0; i < scope->contents->count; i++){
-    Root* root = calloc(sizeof(Root), 1);
-    root->typeIndex = ((RootInfo**)scope->contents->contents)[i]->type.index;
-    void* location;
-    if(var_location(fun, rootInfo[i]->location, rootInfo[i]->expression_count, root->location) != 0){
-      fprintf(stderr, "Error reading root\n");
-      exit(1);
+
+  if(scope->contents != NULL){
+    for(int i=0; i < scope->contents->count; i++){
+      RootInfo** rootInfo = (RootInfo**)scope->contents->contents;
+      Root* root = calloc(sizeof(Root), 1);
+      root->typeIndex = ((RootInfo**)scope->contents->contents)[i]->type.index;
+      void* location;
+      if(var_location(fun, rootInfo[i]->location, rootInfo[i]->expression_count, root->location) != 0){
+        fprintf(stderr, "Error reading root\n");
+        exit(1);
+      }
+      arrayAppend(roots->roots, root);
     }
-    arrayAppend(roots->roots, root);
   }
 }
 
@@ -824,7 +848,7 @@ void get_scope_roots(LiveFunction* fun, Scope* scope, GCContext* context, Roots*
 int get_roots(CallStack* callStack, GCContext* context, Roots** roots){
   *roots = calloc(sizeof(Roots), 1);
   (*roots)->roots = newHeapArray(DEFAULT_ROOT_COUNT);
-  
+
   for(int i=0; i < callStack->count; i++){
     LiveFunction* fun = &(callStack->stack[i]);
 
@@ -833,9 +857,9 @@ int get_roots(CallStack* callStack, GCContext* context, Roots** roots){
       fprintf(stderr, "Could not find function\n");
       break;
     }
-    
+
     fun->function = outValue;
-    
+
     get_scope_roots(fun, fun->function->topScope, context, *roots);
   }
 

@@ -221,11 +221,6 @@ int type_roots(TypedPointers* out){
   if(dwarfHandle == NULL){
     perror("Uninitialized dwarf handle\n");
   } else {
-
-    CallStack* callStack;
-
-    int frames = dwarf_backtrace(&callStack);
-
     func_dies_in_stack(dwarfHandle, callStack, frames);
 
     for(int i=0; i < callStack->count; i++){

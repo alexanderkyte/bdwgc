@@ -35,6 +35,10 @@ int main(int argc, char** argv){
   GCContext* context;
   dwarf_read(argv[0], &context);
   printf("init done\n");
+  CallStack* callStack;
+  dwarf_backtrace(&callStack);
+  Roots* roots;
+  get_roots(callStack, context, &roots);
   printf("got roots\n");
 
   return y + z + x + fact(5) + 1;
