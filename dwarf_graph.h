@@ -121,13 +121,13 @@ typedef struct {
 
 int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwarf_Error* err);
 
-int finalizeContext(GCContext* context);
+void finalizeContext(GCContext* context);
 
 typedef struct {
   unw_cursor_t cursor;
   Function* function;
-  Dwarf_Addr pc;
-  Dwarf_Addr sp;
+  void* pc;
+  void* sp;
 } LiveFunction;
 
 typedef struct {

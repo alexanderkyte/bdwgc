@@ -87,18 +87,21 @@ int var_location(LiveFunction* fun,
     Dwarf_Locdesc* llbuf = llbufarray[i];
 
     Dwarf_Small op = llbuf->ld_s[i].lr_atom;
-
+    
+    Dwarf_Addr pc = (Dwarf_Addr)fun->pc;
+    printf("\npc: %llu, fun->pc: %p\n", pc, fun->pc);
+    
     if(op == DW_OP_fbreg){
 
       /* printf("fbreg: \n"); */
 
       if(llbuf->ld_lopc != 0 &&
-         llbuf->ld_lopc > fun->pc){
+         llbuf->ld_lopc > pc){
         continue;
       }
 
       if(llbuf->ld_hipc != 0 &&
-         llbuf->ld_hipc < fun->pc){
+         llbuf->ld_hipc < pc){
         continue;
       }
 
@@ -200,13 +203,15 @@ int dwarf_backtrace(CallStack** returnStack){
   while (unw_step(&cursor) > 0) {
     unw_get_reg(&cursor, UNW_REG_IP, &ip);
     unw_get_reg(&cursor, UNW_REG_SP, &sp);
-    if(callStack -> count >= callStack->capacity){
+    
+    if(callStack->count >= callStack->capacity){
         callStack->capacity *= 2;
         callStack->stack = realloc(callStack->stack, callStack->capacity * sizeof(LiveFunction *));
     }
     callStack->stack[callStack->count].cursor = cursor;
-    callStack->stack[callStack->count].pc = (Dwarf_Addr) ip;
-    callStack->stack[callStack->count].sp = (Dwarf_Addr) sp;
+    callStack->stack[callStack->count].pc = (void *)ip;
+    callStack->stack[callStack->count].sp = (void *)sp;
+    printf("%p => %p\n", (void *)ip, (void *)sp);
     callStack->count++;
   }
 

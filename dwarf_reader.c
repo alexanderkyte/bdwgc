@@ -155,6 +155,8 @@ int dwarf_read(const char* executable, GCContext** context){
     }
   }
 
+  /* finalizeContext(*context); */
+  
   printf("structures created\n");
 
   if(types_finalize(dbg, dwarfFile, &err) != 0){
@@ -175,6 +177,8 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
   if(tag == DW_TAG_subprogram){
     Function* fun = calloc(sizeof(Function), 1);
 
+    dwarf_read_function(dbg, &child_die, &fun, err);
+    
 #ifdef DEBUG
     {
       char* nameLoc;
@@ -187,15 +191,14 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext* context, Dwarf_Die child_die, Dwa
         return -1;
       } else {
         int len = strlen(nameLoc);
-        fun->dieName = calloc(sizeof(char), len);
+        fun->dieName = calloc(sizeof(char), len+1);
+        /* printf("new address: %p\n", fun->dieName); */
         strcpy(fun->dieName, nameLoc);
-        printf("%s recorded\n", fun->dieName);
+        /* printf("%s recorded in %d space, 0xlowpc: %x, 0xhighpc: %x\n", fun->dieName, len, fun->topScope->lowPC, fun->topScope->highPC); */
       }
     }
 #endif
-
-    dwarf_read_function(dbg, &child_die, &fun, err);
-
+    
     arrayAppend(context->functions, fun);
 
   } else {
@@ -292,7 +295,6 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die* top_die, Scope** top_scope, Dwa
 
     fprintf(stderr, "I need to figure out how to parse ranges\n");
   } else {
-    printf("Non-ranges seen!\n");
     if(pc_range(dbg, top_die, &lowPC, &highPC) != DW_DLV_OK){
       fprintf(stderr, "Error getting high/lowpc for scope\n");
       return -1;
@@ -764,7 +766,7 @@ void sort_functions(GCContext* context){
   qsort(base, nitems, size, cmpFunctions);
 }
 
-int finalizeContext(GCContext* context){
+void finalizeContext(GCContext* context){
   printf("Finalize context called\n");
   compress_type_table(context);
   sort_functions(context);
@@ -803,7 +805,7 @@ int findFunction(void* PC, GCContext* context, Function** outValue){
   for(int i=0; i < context->functions->count; i++){
     Function* fun = context->functions->contents[i];
     #ifdef DEBUG
-    printf("%s: %p >= %p >= %p\n", fun->dieName, fun->topScope->lowPC, PC, fun->topScope->highPC);
+    /* printf("i: %d | %s: %d <= %d <= %d\n", i, fun->dieName, fun->topScope->lowPC, PC, fun->topScope->highPC); */
     #endif
     if(fun->topScope->lowPC <= PC && fun->topScope->highPC >= PC){
       *outValue = fun;
@@ -853,12 +855,17 @@ int get_roots(CallStack* callStack, GCContext* context, Roots** roots){
     LiveFunction* fun = &(callStack->stack[i]);
 
     Function* outValue = NULL;
-    if(findFunction((void *)fun->pc, context, &outValue) != 0){
-      fprintf(stderr, "Could not find function\n");
-      break;
+    if(findFunction(fun->pc, context, &outValue) != 0){
+      // All observed cases of not being able to find the function are because
+      // the reference was pointing into libc functions.
+      /* fprintf(stderr, "Could not find function\n"); */
+      continue;
     }
 
     fun->function = outValue;
+#ifdef DEBUG
+    printf("%s found\n", fun->function->dieName);
+#endif
 
     get_scope_roots(fun, fun->function->topScope, context, *roots);
   }
