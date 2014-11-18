@@ -106,8 +106,13 @@ typedef struct {
 
 int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die *fn_die, Function **fun,
                         Dwarf_Error *err);
-int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die *top_die, Scope **top_scope,
+
+int dwarf_read_scope(Dwarf_Debug dbg,
+                     Dwarf_Die *top_die,
+                     Scope *parent_scope,
+                     Scope **top_scope,
                      Dwarf_Error *err);
+
 int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die *type_die,
                       StructInfo **structInfo, Dwarf_Error *err);
 int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die *type_die,
@@ -145,11 +150,19 @@ typedef struct {
   LiveFunction *stack;
 } CallStack;
 
+
+
 typedef struct {
   void *location;
   int typeIndex;
 } Root;
 
 typedef struct { Array roots; } Roots;
+
+void freeCleanup(GCContext *context);
+void freeRoots(Roots* roots);
+void freeCallstack(CallStack *callStack);
+void freeContext(GCContext *context);
+void freeArray(Array array);
 
 #endif

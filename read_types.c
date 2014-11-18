@@ -1,5 +1,12 @@
 #include "read_types.h"
 
+void freeArray(Array array){
+  if(array->contents){
+    free(array->contents);
+  }
+  free(array);
+}
+
 void arrayAppend(Array array, void *item) {
   if (array->count >= array->capacity) {
     array->capacity *= 2;
@@ -184,6 +191,11 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
 /* } */
 
 #define INITIAL_LIVE_FUNCTION_SIZE 20
+
+void freeCallstack(CallStack *callStack){
+  free(callStack->stack);
+  free(callStack);
+}
 
 int dwarf_backtrace(CallStack **returnStack) {
   *returnStack = calloc(sizeof(CallStack), 1);

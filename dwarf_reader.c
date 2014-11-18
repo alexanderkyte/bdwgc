@@ -174,7 +174,11 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
   if (tag == DW_TAG_subprogram) {
     Function *fun = calloc(sizeof(Function), 1);
 
-    dwarf_read_function(dbg, &child_die, &fun, err);
+    if(dwarf_read_function(dbg, &child_die, &fun, err) != DW_DLV_OK){
+      free(fun);
+      fprintf(stderr, "Error reading function\n");
+      return -1;
+    }
 
 #ifdef DEBUG
     {
@@ -184,7 +188,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
         fprintf(stderr, "Error no given function name\n");
         return -1;
       } else if (status == DW_DLV_ERROR) {
-        fprintf(stderr, "Error given argument was null\n");
+        fprintf(stderr, "Error given argument to diename was null\n");
         return -1;
       } else {
         int len = strlen(nameLoc);
@@ -239,6 +243,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
       // TODO: Track global pointers
     } else {
       fprintf(stderr, "Missed die type: %x\n", tag);
+      free(type);
       return -1;
     }
 
@@ -256,7 +261,7 @@ int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die *fn_die, Function **fun,
                         Dwarf_Error *err) {
   Scope *top_scope;
 
-  if (dwarf_read_scope(dbg, fn_die, &top_scope, err) != DW_DLV_OK) {
+  if (dwarf_read_scope(dbg, fn_die, NULL, &top_scope, err) != DW_DLV_OK) {
     fprintf(stderr, "Problem reading scope in function reader.\n");
     return -1;
   }
@@ -267,8 +272,12 @@ int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die *fn_die, Function **fun,
   return DW_DLV_OK;
 }
 
-int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die *top_die, Scope **top_scope,
+int dwarf_read_scope(Dwarf_Debug dbg,
+                     Dwarf_Die *top_die,
+                     Scope *parent_scope,
+                     Scope **top_scope,
                      Dwarf_Error *err) {
+  
   Dwarf_Attribute location_check;
 
   Dwarf_Addr lowPC = 0;
@@ -276,9 +285,52 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die *top_die, Scope **top_scope,
 
   if (dwarf_attr(*top_die, DW_AT_ranges, &location_check, err) == DW_DLV_OK) {
 
-  http: // www.manualpages.de/FreeBSD/FreeBSD-ports-9.0-RELEASE/man3/dwarf_get_ranges.3.html
+    // The ranges
+    Dwarf_Ranges *ranges;
 
-    fprintf(stderr, "I need to figure out how to parse ranges\n");
+    // Number of entries
+    Dwarf_Signed count;
+
+    // Number of bytes used by entries in dwarf file. Not relevant?
+    Dwarf_Unsigned byte_count;
+    // The offset of the dwarf descriptors. Not relevant?
+    Dwarf_Off offset;
+
+    if(dwarf_global_formref(location_check, &offset, err) != DW_DLV_OK){
+      fprintf(stderr, "Error\n");
+      return -1;
+    }
+    
+    if(dwarf_get_ranges(dbg, offset, &ranges, &count, &byte_count, err) != DW_DLV_OK){
+      fprintf(stderr, "Error\n");
+      return -1;
+    }
+
+    for(int i=0; i < count; i++){
+      
+      switch(ranges[i].dwr_type){
+      case DW_RANGES_ENTRY:
+        lowPC = (Dwarf_Addr)parent_scope->lowPC + (Dwarf_Unsigned)ranges[i].dwr_addr1;
+        highPC = lowPC + (Dwarf_Unsigned)ranges[i].dwr_addr2;
+        break;
+      case DW_RANGES_ADDRESS_SELECTION:
+        /*
+          A base address selection entry.  For this
+				 type of entry, the field dwr_addr1 is the
+				 value of the largest representable address
+				 offset, and dwr_addr2 is a base address for
+				 the begining and ending address offsets of
+				 subsequent address range entries in the list.
+        */
+        fprintf(stderr, "I need to figure out how to parse ranges with strange address format\n");
+        break;
+      case DW_RANGES_END:        
+        break;
+      }
+    }
+
+    dwarf_ranges_dealloc(dbg, ranges, count);
+
   } else {
     if (pc_range(dbg, top_die, &lowPC, &highPC) != DW_DLV_OK) {
       fprintf(stderr, "Error getting high/lowpc for scope\n");
@@ -353,7 +405,7 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die *top_die, Scope **top_scope,
         (*top_scope)->children = newHeapArray(DEFAULT_SCOPE_CHILDREN_SIZE);
         // 5 elements maybe?
         Scope *child_scope;
-        if (dwarf_read_scope(dbg, &child_die, &child_scope, err) != DW_DLV_OK) {
+        if (dwarf_read_scope(dbg, &child_die, *top_scope, &child_scope, err) != DW_DLV_OK) {
           fprintf(stderr, "error recursing on scope.\n");
           return -1;
         }
@@ -852,6 +904,11 @@ void get_scope_roots(LiveFunction *fun, Scope *scope, GCContext *context,
   }
 }
 
+void freeRoots(Roots* roots){
+  freeArray(roots->roots);
+  free(roots);
+}
+
 // CallStack and context are in parameters, roots are outparameters
 int get_roots(CallStack *callStack, GCContext *context, Roots **roots) {
   *roots = calloc(sizeof(Roots), 1);
@@ -878,3 +935,65 @@ int get_roots(CallStack *callStack, GCContext *context, Roots **roots) {
 
   return 0;
 }
+
+void freeScope(Scope* scope){
+  if(scope->contents){
+    for(int i=0; i < scope->contents->count; i++){
+      free(scope->contents->contents[i]);
+      freeArray(scope->contents);
+    }
+
+    free(scope->contents);
+  }
+
+  if(scope->children){
+    for(int i=0; i < scope->children->count; i++){
+      freeScope((Scope *)(scope->children->contents[i]));
+    }
+    freeArray(scope->children);
+  }
+  
+  free(scope);
+}
+
+void freeContext(GCContext *context){
+  for(int i=0; i < context->functions->count; i++){
+    Function *fun = context->functions->contents[i];
+    free(fun->dieName);
+    printf("%p\n", fun->topScope);
+    freeScope(fun->topScope);
+    free(fun);
+  }
+  
+  freeArray(context->functions);
+
+  for(int i=0; i < context->types->count; i++){
+    Type *tmp = context->types->contents[i];
+    switch(tmp->category){
+    case STRUCTURE_TYPE:
+      for(int i=0; i < tmp->info.structInfo->members->count; i++){
+        free(tmp->info.structInfo->members->contents[i]);
+      }
+      freeArray(tmp->info.structInfo->members);
+      free(tmp->info.structInfo);
+      break;
+    case POINTER_TYPE:
+      free(tmp->info.pointerInfo);
+      break;
+    case ARRAY_TYPE:
+      free(tmp->info.pointerArrayInfo);
+      break;
+    case UNION_TYPE:
+      if(tmp->info.unionInfo->alternatives){
+        freeArray(tmp->info.unionInfo->alternatives);
+      }
+      free(tmp->info.unionInfo);
+      break;
+    }
+    free(tmp);
+  }
+
+  freeArray(context->types);
+  free(context);
+}
+

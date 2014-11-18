@@ -41,5 +41,9 @@ int main(int argc, char **argv) {
   get_roots(callStack, context, &roots);
   printf("got roots\n");
 
+  freeContext(context);
+  freeCallstack(callStack);
+  freeRoots(roots);
+
   return y + z + x + fact(5) + 1;
 }
