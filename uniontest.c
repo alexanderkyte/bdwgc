@@ -1,15 +1,15 @@
 typedef union {
   int left;
-  double* right;
+  double *right;
 } Either;
 
-int main(void){
-    Either alter;
-    alter.left = 10;
+int main(void) {
+  Either alter;
+  alter.left = 10;
 
-    double a = 10;
-    Either alter2;
-    alter2.right = &a;
+  double a = 10;
+  Either alter2;
+  alter2.right = &a;
 
-    return (double)alter.left + *alter.right;
+  return (double)alter.left + *alter.right;
 }

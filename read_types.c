@@ -1,15 +1,16 @@
 #include "read_types.h"
 
-void arrayAppend(Array array, void* item){
-  if(array->count >= array->capacity){
+void arrayAppend(Array array, void *item) {
+  if (array->count >= array->capacity) {
     array->capacity *= 2;
-    array->contents = realloc(array->contents, array->capacity * sizeof(void *));
+    array->contents =
+        realloc(array->contents, array->capacity * sizeof(void *));
   }
   array->contents[array->count] = item;
   array->count++;
 }
 
-Array newHeapArray(int capacity){
+Array newHeapArray(int capacity) {
   Array out = calloc(sizeof(struct HeapArray), 1);
 
   out->count = 0;
@@ -19,17 +20,17 @@ Array newHeapArray(int capacity){
   return out;
 }
 
-bool is_pointer(Dwarf_Debug dbg, Dwarf_Die *die, Dwarf_Error* err){
+bool is_pointer(Dwarf_Debug dbg, Dwarf_Die *die, Dwarf_Error *err) {
   Dwarf_Half type_tag;
 
   Dwarf_Die type_die;
 
-  if(type_of(dbg, die, &type_die, err) != DW_DLV_OK){
+  if (type_of(dbg, die, &type_die, err) != DW_DLV_OK) {
     fprintf(stderr, "Error getting type offset\n");
     exit(-11);
   }
 
-  if (dwarf_tag(type_die, &type_tag, err) != DW_DLV_OK){
+  if (dwarf_tag(type_die, &type_tag, err) != DW_DLV_OK) {
     perror("Error in dwarf_tag\n");
     exit(-1);
   }
@@ -37,71 +38,70 @@ bool is_pointer(Dwarf_Debug dbg, Dwarf_Die *die, Dwarf_Error* err){
   return type_tag == DW_TAG_pointer_type;
 }
 
-int type_off(Dwarf_Die* die, Dwarf_Off* ref_off, Dwarf_Error* err){
+int type_off(Dwarf_Die *die, Dwarf_Off *ref_off, Dwarf_Error *err) {
   Dwarf_Attribute type;
   int status;
 
-  if((status = dwarf_attr(*die, DW_AT_type, &type, err)) != DW_DLV_OK){
-    if(status == DW_DLV_NO_ENTRY){
+  if ((status = dwarf_attr(*die, DW_AT_type, &type, err)) != DW_DLV_OK) {
+    if (status == DW_DLV_NO_ENTRY) {
       fprintf(stderr, "No type information associated with die\n");
     } else {
-      fprintf(stderr, "Error %d in getting type attribute: %s\n", status, dwarf_errmsg(*err));
+      fprintf(stderr, "Error %d in getting type attribute: %s\n", status,
+              dwarf_errmsg(*err));
     }
     return status;
   }
 
-  if((status = dwarf_global_formref(type, ref_off, err)) != DW_DLV_OK){
-    fprintf(stderr, "Error %d in getting type offset: %s\n", status, dwarf_errmsg(*err));
+  if ((status = dwarf_global_formref(type, ref_off, err)) != DW_DLV_OK) {
+    fprintf(stderr, "Error %d in getting type offset: %s\n", status,
+            dwarf_errmsg(*err));
     return status;
   }
 
   return DW_DLV_OK;
 }
 
-
-int type_of(Dwarf_Debug dbg, Dwarf_Die* die, Dwarf_Die* type_die, Dwarf_Error* err){
+int type_of(Dwarf_Debug dbg, Dwarf_Die *die, Dwarf_Die *type_die,
+            Dwarf_Error *err) {
   Dwarf_Attribute type;
   Dwarf_Off ref_off = 0;
 
-  if(type_off(die, &ref_off, err) != DW_DLV_OK){
+  if (type_off(die, &ref_off, err) != DW_DLV_OK) {
     fprintf(stderr, "Error in getting type offset: %s\n", dwarf_errmsg(*err));
     return -1;
   }
 
   int status;
 
-  if((status = dwarf_offdie(dbg, ref_off, type_die, err)) != DW_DLV_OK){
-    fprintf(stderr, "Error %d in getting die at offset: %s\n", status, dwarf_errmsg(*err));
+  if ((status = dwarf_offdie(dbg, ref_off, type_die, err)) != DW_DLV_OK) {
+    fprintf(stderr, "Error %d in getting die at offset: %s\n", status,
+            dwarf_errmsg(*err));
     return status;
   }
 
   return DW_DLV_OK;
 }
 
-int var_location(LiveFunction* fun,
-                 Dwarf_Locdesc** llbufarray,
-                 int expression_count,
-                 void** location){
+int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
+                 int expression_count, void **location) {
 
-  for(int i = 0; i < expression_count; ++i) {
-    Dwarf_Locdesc* llbuf = llbufarray[i];
+  for (int i = 0; i < expression_count; ++i) {
+    Dwarf_Locdesc *llbuf = llbufarray[i];
 
     Dwarf_Small op = llbuf->ld_s[i].lr_atom;
-    
+
     Dwarf_Addr pc = (Dwarf_Addr)fun->pc;
     printf("\npc: %llu, fun->pc: %p\n", pc, fun->pc);
-    
-    if(op == DW_OP_fbreg){
+
+    if (op == DW_OP_fbreg) {
 
       /* printf("fbreg: \n"); */
 
-      if(llbuf->ld_lopc != 0 &&
-         llbuf->ld_lopc > pc){
+      if (llbuf->ld_lopc != 0 && llbuf->ld_lopc > pc) {
         continue;
       }
 
-      if(llbuf->ld_hipc != 0 &&
-         llbuf->ld_hipc < pc){
+      if (llbuf->ld_hipc != 0 && llbuf->ld_hipc < pc) {
         continue;
       }
 
@@ -120,7 +120,7 @@ int var_location(LiveFunction* fun,
       unw_regnum_t reg;
       unw_word_t reg_value;
 
-      switch(op){
+      switch (op) {
       case DW_OP_breg0:
       case DW_OP_breg1:
       case DW_OP_breg2:
@@ -140,15 +140,16 @@ int var_location(LiveFunction* fun,
       case DW_OP_breg16:
       case DW_OP_breg17:
       case DW_OP_breg18: {
-        reg = x86_dwarf_to_libunwind_regnum[op-DW_OP_breg0];
+        reg = x86_dwarf_to_libunwind_regnum[op - DW_OP_breg0];
 
         offset = llbuf->ld_s[i].lr_number;
 
-        if(unw_get_reg(&(fun->cursor), reg, &reg_value) != 0){
+        if (unw_get_reg(&(fun->cursor), reg, &reg_value) != 0) {
           fprintf(stderr, "Error occurred reading register\n");
         }
 
-        /* printf("breg %d register: %s register value: %p offset: %ld\n", reg, unw_regname(reg), (void *)reg_value, offset); */
+        /* printf("breg %d register: %s register value: %p offset: %ld\n", reg,
+         * unw_regname(reg), (void *)reg_value, offset); */
 
         *location = (void *)reg_value + offset;
 
@@ -159,24 +160,23 @@ int var_location(LiveFunction* fun,
 
       default:
         printf("other: %x\n", op);
-
       }
-
     }
-
   }
 
   return 0;
 }
 
-/* int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){ */
+/* int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){
+ */
 /*   for(int i=0; i < stackSize; i++){ */
 /*     if(callstack->stack[i].pc > lowPC && callstack->stack[i].pc < highPC){ */
 /*       if(callstack->stack[i].fn_die != NULL){ */
 /*         fprintf(stderr, "Overlapping functions, err!"); */
 /*         exit(1); */
 /*       } */
-/*       printf("assigning: %llu < %llu < %llu\n", lowPC, callstack->stack[i].pc, highPC); */
+/*       printf("assigning: %llu < %llu < %llu\n", lowPC,
+ * callstack->stack[i].pc, highPC); */
 /*       callstack->stack[i].fn_die = *child_die; */
 /*     } */
 
@@ -185,7 +185,7 @@ int var_location(LiveFunction* fun,
 
 #define INITIAL_LIVE_FUNCTION_SIZE 20
 
-int dwarf_backtrace(CallStack** returnStack){
+int dwarf_backtrace(CallStack **returnStack) {
   *returnStack = calloc(sizeof(CallStack), 1);
 
   CallStack *callStack = *returnStack;
@@ -203,10 +203,11 @@ int dwarf_backtrace(CallStack** returnStack){
   while (unw_step(&cursor) > 0) {
     unw_get_reg(&cursor, UNW_REG_IP, &ip);
     unw_get_reg(&cursor, UNW_REG_SP, &sp);
-    
-    if(callStack->count >= callStack->capacity){
-        callStack->capacity *= 2;
-        callStack->stack = realloc(callStack->stack, callStack->capacity * sizeof(LiveFunction *));
+
+    if (callStack->count >= callStack->capacity) {
+      callStack->capacity *= 2;
+      callStack->stack = realloc(callStack->stack,
+                                 callStack->capacity * sizeof(LiveFunction *));
     }
     callStack->stack[callStack->count].cursor = cursor;
     callStack->stack[callStack->count].pc = (void *)ip;
@@ -218,8 +219,6 @@ int dwarf_backtrace(CallStack** returnStack){
   return callStack->count;
 }
 
-
-
 // Replace with something that uses data structures
 /*
 int type_roots(TypedPointers* out){
@@ -229,7 +228,8 @@ int type_roots(TypedPointers* out){
     func_dies_in_stack(dwarfHandle, callStack, frames);
 
     for(int i=0; i < callStack->count; i++){
-      printf("pc: %p sp: %p\n", (void *)callStack->stack[i].pc, (void *)callStack->stack[i].sp);
+      printf("pc: %p sp: %p\n", (void *)callStack->stack[i].pc, (void
+*)callStack->stack[i].sp);
     }
 
     if(frames > 0){
@@ -240,7 +240,8 @@ int type_roots(TypedPointers* out){
   return 0;
 };
 
-void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Error* err){
+void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots,
+Dwarf_Error* err){
   Dwarf_Die child_die;
 
   // Expect the CU DIE to have children
@@ -260,7 +261,7 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
 
       pc_range(dbg, child_die, &lowPC, &highPC);
       if(fun->pc > lowPC && fun->pc < highPC){
-        // typeScope(pc, dbg, child_die, pointer_store_size, pointers); 
+        // typeScope(pc, dbg, child_die, pointer_store_size, pointers);
       }
 
     } else if(tag == DW_TAG_formal_parameter){
@@ -285,12 +286,14 @@ void type_fun(Dwarf_Debug dbg, LiveFunction* fun, TypedPointers* roots, Dwarf_Er
         void* pointer_location = NULL;
 
         printf("printing var start\n");
-        if(var_location(dbg, fun, child_die, &pointer_location, err) != DW_DLV_OK){
+        if(var_location(dbg, fun, child_die, &pointer_location, err) !=
+DW_DLV_OK){
           perror("Error deriving the location of a variable\n");
         }
 
         if(roots->filled == roots->capacity - 1){
-          roots->contents = realloc(roots->contents, (roots->capacity) * 2 * sizeof(RootPointer *));
+          roots->contents = realloc(roots->contents, (roots->capacity) * 2 *
+sizeof(RootPointer *));
           roots->capacity = (roots->capacity) * 2;
        }
 
