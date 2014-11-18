@@ -172,7 +172,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
   }
 
   if (tag == DW_TAG_subprogram) {
-    Function *fun = calloc(sizeof(Function), 1);
+    Function *fun;
 
     if(dwarf_read_function(dbg, &child_die, &fun, err) != DW_DLV_OK){
       free(fun);
@@ -957,10 +957,14 @@ void freeScope(Scope* scope){
 }
 
 void freeContext(GCContext *context){
+
   for(int i=0; i < context->functions->count; i++){
     Function *fun = context->functions->contents[i];
+    
+    #ifdef DEBUG
     free(fun->dieName);
-    printf("%p\n", fun->topScope);
+    #endif
+
     freeScope(fun->topScope);
     free(fun);
   }
