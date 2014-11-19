@@ -19,7 +19,7 @@ int fact(int n) {
 int main(int argc, char **argv) {
   z = 100000;
   int x = 10;
-  Node* v = calloc(sizeof(Node), 1);
+  Node *v = calloc(sizeof(Node), 1);
   v->x = 100;
   v->next = NULL;
 
@@ -44,14 +44,17 @@ int main(int argc, char **argv) {
   get_roots(callStack, context, &roots);
   printf("got roots\n");
 
-  for(int i=0; i < roots->roots->count; i++){
-    printf("location: %p, type: %d\n", roots->roots->contents[i]);
+  for (int i = 0; i < roots->roots->count; i++) {
+    Root *root = roots->roots->contents[i];
+    Type *type = context->types->contents[root->typeIndex];
+    printf("location: %p, type: %d\n", root->location, root->typeIndex);
   }
 
   printf("name | contents | children\n");
-  for(int i=0; i < context->functions->count; i++){
+  for (int i = 0; i < context->functions->count; i++) {
     Function *fun = context->functions->contents[i];
-    printf("%s %p %p\n", fun->dieName, fun->topScope->contents, fun->topScope->children);
+    printf("%s %p %p\n", fun->dieName, fun->topScope->contents,
+           fun->topScope->children);
   }
 
   printf("done\n");

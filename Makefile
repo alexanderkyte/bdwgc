@@ -9,6 +9,9 @@ all: test
 test: $(FILES)
 	$(CC) $(FILES) $(FLAGS) -o test
 
+lint: $(FILES)
+	cppcheck $(FILES)
+	clang-format -i $(FILES)
 
 clean:
 	rm test

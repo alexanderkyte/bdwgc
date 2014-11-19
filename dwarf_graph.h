@@ -65,7 +65,7 @@ typedef enum {
 typedef struct {
   int layersOfIndirection;
   TypeKey targetType;
-  bool void_star;
+  bool voidStar;
 } PointerInfo;
 
 #define DEFAULT_STRUCT_MEMBER_LIST_SIZE 10

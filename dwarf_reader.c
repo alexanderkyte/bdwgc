@@ -63,8 +63,7 @@ int pc_range(Dwarf_Debug dgb, Dwarf_Die *fn_die, Dwarf_Addr *lowPC,
     Dwarf_Unsigned offset = 0;
 
     if (dwarf_formudata(highAttr, &offset, &err) != DW_DLV_OK) {
-      perror("Error in getting high pc value.\n");
-      printf("%s\n", dwarf_errmsg(err));
+      fprintf(stderr, "Error in getting high pc value: %s\n", dwarf_errmsg(err));
     } else if (offset <= 0) {
       // Function will never have negative program count.
       perror("Form data not read");
@@ -151,9 +150,7 @@ int dwarf_read(const char *executable, GCContext **context) {
     }
   }
 
-  /* finalizeContext(*context); */
-
-  printf("structures created\n");
+  finalizeContext(*context);
 
   if (types_finalize(dbg, dwarfFile, &err) != 0) {
     fprintf(stderr, "Error closing dwarf file handle\n");
@@ -174,7 +171,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
   if (tag == DW_TAG_subprogram) {
     Function *fun;
 
-    if(dwarf_read_function(dbg, &child_die, &fun, err) != DW_DLV_OK){
+    if (dwarf_read_function(dbg, &child_die, &fun, err) != DW_DLV_OK) {
       free(fun);
       fprintf(stderr, "Error reading function\n");
       return -1;
@@ -212,6 +209,25 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
       return -1;
     }
 
+    /* char *nameLoc; */
+    /* if(dwarf_diename(child_die, &nameLoc, err) == DW_DLV_OK){ */
+    /*   printf("%s\n", nameLoc); */
+    /* } */
+
+    /* Dwarf_Die printDie; */
+
+    /* if(dwarf_offdie(dbg, typeKey, &printDie, err) != DW_DLV_OK) { */
+    /*   printf("couldn't find given die\n"); */
+    /*   exit(-1); */
+    /* } */
+
+    /* char *nameLoc2; */
+    /* if(dwarf_diename(printDie, &nameLoc2, err) == DW_DLV_OK){ */
+    /*   printf("%s == %s\n", nameLoc, nameLoc2); */
+    /* } */
+
+
+
     Type *type = calloc(sizeof(Type), 1);
     type->key.offset = typeKey;
 
@@ -228,6 +244,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
       type->info.unionInfo = info;
 
     } else if (tag == DW_TAG_pointer_type) {
+
       dwarf_read_pointer(dbg, &child_die, (PointerInfo **)&info, err);
       type->category = POINTER_TYPE;
       type->info.pointerInfo = info;
@@ -272,12 +289,9 @@ int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die *fn_die, Function **fun,
   return DW_DLV_OK;
 }
 
-int dwarf_read_scope(Dwarf_Debug dbg,
-                     Dwarf_Die *top_die,
-                     Scope *parent_scope,
-                     Scope **top_scope,
-                     Dwarf_Error *err) {
-  
+int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die *top_die, Scope *parent_scope,
+                     Scope **top_scope, Dwarf_Error *err) {
+
   Dwarf_Attribute location_check;
 
   Dwarf_Addr lowPC = 0;
@@ -296,35 +310,38 @@ int dwarf_read_scope(Dwarf_Debug dbg,
     // The offset of the dwarf descriptors. Not relevant?
     Dwarf_Off offset;
 
-    if(dwarf_global_formref(location_check, &offset, err) != DW_DLV_OK){
-      fprintf(stderr, "Error\n");
-      return -1;
-    }
-    
-    if(dwarf_get_ranges(dbg, offset, &ranges, &count, &byte_count, err) != DW_DLV_OK){
+    if (dwarf_global_formref(location_check, &offset, err) != DW_DLV_OK) {
       fprintf(stderr, "Error\n");
       return -1;
     }
 
-    for(int i=0; i < count; i++){
-      
-      switch(ranges[i].dwr_type){
+    if (dwarf_get_ranges(dbg, offset, &ranges, &count, &byte_count, err) !=
+        DW_DLV_OK) {
+      fprintf(stderr, "Error\n");
+      return -1;
+    }
+
+    for (int i = 0; i < count; i++) {
+
+      switch (ranges[i].dwr_type) {
       case DW_RANGES_ENTRY:
-        lowPC = (Dwarf_Addr)parent_scope->lowPC + (Dwarf_Unsigned)ranges[i].dwr_addr1;
+        lowPC = (Dwarf_Addr)parent_scope->lowPC +
+                (Dwarf_Unsigned)ranges[i].dwr_addr1;
         highPC = lowPC + (Dwarf_Unsigned)ranges[i].dwr_addr2;
         break;
       case DW_RANGES_ADDRESS_SELECTION:
         /*
           A base address selection entry.  For this
-				 type of entry, the field dwr_addr1 is the
-				 value of the largest representable address
-				 offset, and dwr_addr2 is a base address for
-				 the begining and ending address offsets of
-				 subsequent address range entries in the list.
+                                 type of entry, the field dwr_addr1 is the
+                                 value of the largest representable address
+                                 offset, and dwr_addr2 is a base address for
+                                 the begining and ending address offsets of
+                                 subsequent address range entries in the list.
         */
-        fprintf(stderr, "I need to figure out how to parse ranges with strange address format\n");
+        fprintf(stderr, "I need to figure out how to parse ranges with strange "
+                        "address format\n");
         break;
-      case DW_RANGES_END:        
+      case DW_RANGES_END:
         break;
       }
     }
@@ -405,7 +422,8 @@ int dwarf_read_scope(Dwarf_Debug dbg,
         (*top_scope)->children = newHeapArray(DEFAULT_SCOPE_CHILDREN_SIZE);
         // 5 elements maybe?
         Scope *child_scope;
-        if (dwarf_read_scope(dbg, &child_die, *top_scope, &child_scope, err) != DW_DLV_OK) {
+        if (dwarf_read_scope(dbg, &child_die, *top_scope, &child_scope, err) !=
+            DW_DLV_OK) {
           fprintf(stderr, "error recursing on scope.\n");
           return -1;
         }
@@ -423,6 +441,14 @@ int dwarf_read_scope(Dwarf_Debug dbg,
   }
 
   return DW_DLV_OK;
+}
+
+void freeLocation(Dwarf_Locdesc **location, int expression_count) {
+  for (int i = 0; i < expression_count; i++) {
+    free(location[i]->ld_s);
+    free(location[i]);
+  }
+  free(location);
 }
 
 int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die *root_die, RootInfo **info,
@@ -444,15 +470,28 @@ int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die *root_die, RootInfo **info,
     return -1;
   }
 
+  // Need to copy because libdwarf will free the memory on closing the file
+  // handle
+  Dwarf_Locdesc **llbuf_copy =
+      calloc(sizeof(Dwarf_Locdesc *), number_of_expressions);
+  for (int i = 0; i < number_of_expressions; i++) {
+    llbuf_copy[i] = calloc(sizeof(Dwarf_Locdesc), 1);
+    memcpy(llbuf_copy[i], llbufarray[i], sizeof(Dwarf_Locdesc));
+    llbuf_copy[i]->ld_s = calloc(sizeof(Dwarf_Loc), llbuf_copy[i]->ld_cents);
+    memcpy(llbuf_copy[i]->ld_s, llbufarray[i]->ld_s,
+           sizeof(Dwarf_Loc) * llbuf_copy[i]->ld_cents);
+  }
+
   Dwarf_Off ref_off = 0;
 
   if (type_off(root_die, &ref_off, err) != DW_DLV_OK) {
     fprintf(stderr, "Error getting offset\n");
+    freeLocation(llbuf_copy, number_of_expressions);
     return -1;
   }
 
   *info = calloc(sizeof(RootInfo), 1);
-  (*info)->location = llbufarray;
+  (*info)->location = llbuf_copy;
   (*info)->expression_count = number_of_expressions;
   (*info)->type.offset = ref_off;
 
@@ -608,14 +647,17 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die *type_die, PointerInfo **info,
 
   Dwarf_Attribute type_check;
 
-  bool void_star = false;
+  bool voidStar = false;
 
   while (target_type == DW_TAG_pointer_type) {
 
     if (dwarf_attr(*target_die, DW_AT_type, &type_check, err) ==
         DW_DLV_NO_ENTRY) {
-      void_star = true;
+
+      // There's no target type. Rather than a sentinel, I'm using a boolean for now.
+      voidStar = true;
       break;
+
     } else {
       indirectionCount++;
 
@@ -641,7 +683,7 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die *type_die, PointerInfo **info,
   *info = calloc(sizeof(PointerInfo), 1);
   (*info)->layersOfIndirection = indirectionCount;
   (*info)->targetType.offset = target_off;
-  (*info)->void_star = void_star;
+  (*info)->voidStar = voidStar;
 
   return DW_DLV_OK;
 }
@@ -668,7 +710,7 @@ int dwarf_read_member_offset(Dwarf_Debug dbg, Dwarf_Die *member_die,
     Dwarf_Signed soffset;
     dwarf_formsdata(member_location, &soffset, 0);
     if (soffset < 0) {
-      printf("unsupported negative offset\n");
+      fprintf(stderr, "unsupported negative offset\n");
       /* FAIL */
     }
     dwarf_offset = (Dwarf_Unsigned)soffset;
@@ -679,10 +721,10 @@ int dwarf_read_member_offset(Dwarf_Debug dbg, Dwarf_Die *member_die,
 
     if (dwarf_loclist_n(member_location, &locdescs, &len, err) ==
         DW_DLV_ERROR) {
-      printf("unsupported member offset\n");
+      fprintf(stderr, "unsupported member offset\n");
     } else if (len != 1 || locdescs[0]->ld_cents != 1 ||
                (locdescs[0]->ld_s[0]).lr_atom != DW_OP_plus_uconst) {
-      printf("unsupported location expression\n");
+      fprintf(stderr, "unsupported location expression\n");
     }
     dwarf_offset = (locdescs[0]->ld_s[0]).lr_number;
   }
@@ -737,23 +779,23 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die *type_die,
   return DW_DLV_OK;
 }
 
-void update_index(Array types, TypeKey *offset, int limit) {
-#ifdef DEBUG
-  assert(limit <= types->count);
-#endif
+void update_index(Array types, TypeKey *offset, int *index){
 
-  for (int i = 0; i < limit; i++) {
-    if (((Type *)types->contents[i])->key.offset == offset->offset) {
-      offset->index = i;
+  for (int i = 0; i < types->count; i++) {
+    Type* type = ((Type **)types->contents)[i];
+    if (type->key.offset == offset->offset) {
+      *index = i;
       return;
     }
   }
 
-  fprintf(stderr, "Could not find the type offset in the type list");
+  fprintf(stderr, "Could not find the type offset %llu in the type list\n", offset->offset);
   exit(1);
 }
 
 void compress_type_table(GCContext *context) {
+
+  int *indices = calloc(sizeof(int), context->types->count);
 
   // Update all type indices
   for (int i = 0; i < context->types->count; i++) {
@@ -761,7 +803,11 @@ void compress_type_table(GCContext *context) {
 
     switch (type->category) {
     case POINTER_TYPE:
-      update_index(context->types, &(type->info.pointerInfo->targetType), i);
+      if(!type->info.pointerInfo->voidStar){
+        update_index(context->types,
+                     &(type->info.pointerInfo->targetType),
+                     &(indices[i]));
+      }
       break;
     case STRUCTURE_TYPE:
       for (int i = 0; i < type->info.structInfo->members->count; i++) {
@@ -769,20 +815,21 @@ void compress_type_table(GCContext *context) {
             context->types,
             &(((StructMember *)type->info.structInfo->members->contents[i])
                   ->type),
-            i);
+            &(indices[i]));
       }
       break;
     case UNION_TYPE:
+
       for (int i = 0; i < type->info.unionInfo->alternatives->count; i++) {
         update_index(
             context->types,
             &(((TypeKey *)(type->info.unionInfo->alternatives->contents))[i]),
-            i);
+            &(indices[i]));
       }
       break;
     case ARRAY_TYPE:
       update_index(context->types, &(type->info.pointerArrayInfo->elementTypes),
-                   i);
+                   &(indices[i]));
       break;
     }
   }
@@ -791,12 +838,24 @@ void compress_type_table(GCContext *context) {
   for (int i = 0; i < context->functions->count; i++) {
     Function *this = context->functions->contents[i];
     for (int k = 0; k < this->topScope->contents->count; k++) {
+      int index;
+      TypeKey *rootOffset = &(((RootInfo *)(this->topScope->contents->contents))[i].type);
       update_index(
           context->types,
-          &(((RootInfo *)(this->topScope->contents->contents))[i].type),
-          context->types->count);
+          rootOffset,
+          &index);
+      rootOffset->index = index;
     }
   }
+
+  for (int i = 0; i < context->types->count; i++) {
+    Type *type = (Type *)context->types->contents[i];
+    type->key.index = indices[i];
+  }
+
+  free(indices);
+
+  return;
 }
 
 int cmpFunctions(const void *firstArg, const void *secondArg) {
@@ -820,7 +879,6 @@ void sort_functions(GCContext *context) {
 }
 
 void finalizeContext(GCContext *context) {
-  printf("Finalize context called\n");
   compress_type_table(context);
   sort_functions(context);
 }
@@ -883,31 +941,28 @@ void get_scope_roots(LiveFunction *fun, Scope *scope, GCContext *context,
 
     for (int i = 0; i < scope->children->count; i++) {
       if (pc >= children[i]->lowPC && pc <= children[i]->highPC) {
-        printf("getting scope roots recursively\n");
         get_scope_roots(fun, children[i], context, roots);
       }
     }
   }
 
   if (scope->contents != NULL) {
-    printf("non-null scope contents\n");
     for (int i = 0; i < scope->contents->count; i++) {
       RootInfo **rootInfo = (RootInfo **)scope->contents->contents;
       Root *root = calloc(sizeof(Root), 1);
       root->typeIndex = ((RootInfo **)scope->contents->contents)[i]->type.index;
-      void *location;
+
       if (var_location(fun, rootInfo[i]->location,
-                       rootInfo[i]->expression_count, root->location) != 0) {
+                       rootInfo[i]->expression_count, &root->location) != 0) {
         fprintf(stderr, "Error reading root\n");
         exit(1);
       }
-      printf("appending root\n");
       arrayAppend(roots->roots, root);
     }
   }
 }
 
-void freeRoots(Roots* roots){
+void freeRoots(Roots *roots) {
   freeArray(roots->roots);
   free(roots);
 }
@@ -939,46 +994,47 @@ int get_roots(CallStack *callStack, GCContext *context, Roots **roots) {
   return 0;
 }
 
-void freeScope(Scope* scope){
-  if(scope->contents){
-    for(int i=0; i < scope->contents->count; i++){
-      free(scope->contents->contents[i]);
-      freeArray(scope->contents);
-    }
+void freeScope(Scope *scope) {
+  if (scope->contents) {
+    for (int i = 0; i < scope->contents->count; i++) {
+      RootInfo *info = ((RootInfo **)scope->contents->contents)[i];
+      freeLocation(info->location, info->expression_count);
 
-    free(scope->contents);
+      free(info);
+    }
+    freeArray(scope->contents);
   }
 
-  if(scope->children){
-    for(int i=0; i < scope->children->count; i++){
+  if (scope->children) {
+    for (int i = 0; i < scope->children->count; i++) {
       freeScope((Scope *)(scope->children->contents[i]));
     }
     freeArray(scope->children);
   }
-  
+
   free(scope);
 }
 
-void freeContext(GCContext *context){
+void freeContext(GCContext *context) {
 
-  for(int i=0; i < context->functions->count; i++){
+  for (int i = 0; i < context->functions->count; i++) {
     Function *fun = context->functions->contents[i];
-    
-    #ifdef DEBUG
+
+#ifdef DEBUG
     free(fun->dieName);
-    #endif
+#endif
 
     freeScope(fun->topScope);
     free(fun);
   }
-  
+
   freeArray(context->functions);
 
-  for(int i=0; i < context->types->count; i++){
+  for (int i = 0; i < context->types->count; i++) {
     Type *tmp = context->types->contents[i];
-    switch(tmp->category){
+    switch (tmp->category) {
     case STRUCTURE_TYPE:
-      for(int i=0; i < tmp->info.structInfo->members->count; i++){
+      for (int i = 0; i < tmp->info.structInfo->members->count; i++) {
         free(tmp->info.structInfo->members->contents[i]);
       }
       freeArray(tmp->info.structInfo->members);
@@ -991,7 +1047,7 @@ void freeContext(GCContext *context){
       free(tmp->info.pointerArrayInfo);
       break;
     case UNION_TYPE:
-      if(tmp->info.unionInfo->alternatives){
+      if (tmp->info.unionInfo->alternatives) {
         freeArray(tmp->info.unionInfo->alternatives);
       }
       free(tmp->info.unionInfo);
@@ -1003,4 +1059,3 @@ void freeContext(GCContext *context){
   freeArray(context->types);
   free(context);
 }
-

@@ -1,7 +1,7 @@
 #include "read_types.h"
 
-void freeArray(Array array){
-  if(array->contents){
+void freeArray(Array array) {
+  if (array->contents) {
     free(array->contents);
   }
   free(array);
@@ -114,9 +114,11 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
 
       Dwarf_Unsigned offset = llbuf->ld_s[i].lr_number;
 
-      /* printf("setting to %llu\n", fun->sp + (unsigned long long)offset); */
+      printf("setting to %llu\n", fun->sp + (unsigned long long)offset);
 
       *location = (void *)fun->sp + offset;
+
+      printf("after addition");
 
       return DW_DLV_OK;
 
@@ -192,7 +194,7 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
 
 #define INITIAL_LIVE_FUNCTION_SIZE 20
 
-void freeCallstack(CallStack *callStack){
+void freeCallstack(CallStack *callStack) {
   free(callStack->stack);
   free(callStack);
 }
