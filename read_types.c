@@ -184,23 +184,7 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
   return 0;
 }
 
-/* int func_dies_in_stack(Dwarf_Debug dbg, CallStack* callstack, int stackSize){
- */
-/*   for(int i=0; i < stackSize; i++){ */
-/*     if(callstack->stack[i].pc > lowPC && callstack->stack[i].pc < highPC){ */
-/*       if(callstack->stack[i].fn_die != NULL){ */
-/*         fprintf(stderr, "Overlapping functions, err!"); */
-/*         exit(1); */
-/*       } */
-/*       printf("assigning: %llu < %llu < %llu\n", lowPC,
- * callstack->stack[i].pc, highPC); */
-/*       callstack->stack[i].fn_die = *child_die; */
-/*     } */
 
-/*   } */
-/* } */
-
-#define INITIAL_LIVE_FUNCTION_SIZE 20
 
 void freeCallstack(CallStack *callStack) {
   free(callStack->stack);

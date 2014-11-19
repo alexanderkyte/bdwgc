@@ -33,6 +33,8 @@ typedef struct Scope {
   void *highPC;
 } Scope;
 
+#define INITIAL_LIVE_FUNCTION_SIZE 20
+
 typedef struct Function {
   Scope *topScope;
 #ifdef DEBUG

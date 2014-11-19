@@ -51,12 +51,18 @@ int main(int argc, char **argv) {
     /*printf("location: %p, type: %d\n", root->location, root->typeIndex);*/
   /*}*/
 
-  /*printf("name | contents | children\n");*/
-  /*for (int i = 0; i < context->functions->count; i++) {*/
-    /*Function *fun = context->functions->contents[i];*/
-    /*printf("%s %p %p\n", fun->dieName, fun->topScope->contents,*/
-           /*fun->topScope->children);*/
-  /*}*/
+  // printf("| name | contents | children | lowpc | highpc |\n");
+  // for (int i = 0; i < context->functions->count; i++) {
+  //   Function *fun = context->functions->contents[i];
+  //   printf(
+  //     "%s %p %p */ "%d %d\n",
+  //     fun->dieName, 
+  //     fun->topScope->contents,
+  //     fun->topScope->children,
+  //     fun->topScope->lowPC,
+  //     fun->topScope->highPC
+  //   );
+  // }
 
   freeContext(context);
   freeCallstack(callStack);

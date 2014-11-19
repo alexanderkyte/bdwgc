@@ -896,8 +896,8 @@ void compress_type_table(GCContext *context) {
 }
 
 int cmpFunctions(const void *firstArg, const void *secondArg) {
-  Function *first = (Function *)firstArg;
-  Function *second = (Function *)secondArg;
+  Function* first = *( (Function **)firstArg );
+  Function* second = *( (Function **)secondArg );
   int lowDiff = first->topScope->lowPC - second->topScope->lowPC;
 
   if (lowDiff == 0) {
@@ -910,14 +910,14 @@ int cmpFunctions(const void *firstArg, const void *secondArg) {
 
 void sort_functions(GCContext *context) {
   void *base = context->functions->contents;
-  size_t nitems = context->functions->count;
+  size_t nitems = context->functions->count-1;
   size_t size = sizeof(Function *);
   qsort(base, nitems, size, cmpFunctions);
 }
 
 void finalizeContext(GCContext *context) {
   compress_type_table(context);
-  /* sort_functions(context); */
+  sort_functions(context);
 }
 
 int findFunction(void *PC, GCContext *context, Function **outValue) {
