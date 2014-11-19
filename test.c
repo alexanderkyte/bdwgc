@@ -25,6 +25,7 @@ int main(int argc, char **argv) {
 
   if (argc <= 0) {
     perror("Argv does not contain executable name. Something went very wrong");
+    free(v);
     return -1;
   }
 
@@ -63,5 +64,6 @@ int main(int argc, char **argv) {
   freeCallstack(callStack);
   freeRoots(roots);
 
+  free(v);
   return y + z + x + fact(5) + 1;
 }

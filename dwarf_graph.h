@@ -16,6 +16,8 @@ typedef struct HeapArray {
 void arrayAppend(Array array, void *item);
 Array newHeapArray(int capacity);
 
+#define SENTINEL_INDEX -1
+
 typedef union {
   Dwarf_Off offset;
   int index;

@@ -63,7 +63,8 @@ int pc_range(Dwarf_Debug dgb, Dwarf_Die *fn_die, Dwarf_Addr *lowPC,
     Dwarf_Unsigned offset = 0;
 
     if (dwarf_formudata(highAttr, &offset, &err) != DW_DLV_OK) {
-      fprintf(stderr, "Error in getting high pc value: %s\n", dwarf_errmsg(err));
+      fprintf(stderr, "Error in getting high pc value: %s\n",
+              dwarf_errmsg(err));
     } else if (offset <= 0) {
       // Function will never have negative program count.
       perror("Form data not read");
@@ -226,38 +227,43 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
     /*   printf("%s == %s\n", nameLoc, nameLoc2); */
     /* } */
 
-
-
     Type *type = calloc(sizeof(Type), 1);
     type->key.offset = typeKey;
 
-    void *info;
-
     if (tag == DW_TAG_structure_type) {
-      dwarf_read_struct(dbg, &child_die, (StructInfo **)&info, err);
+      dwarf_read_struct(dbg, &child_die, &type->info.structInfo, err);
       type->category = STRUCTURE_TYPE;
-      type->info.structInfo = info;
 
     } else if (tag == DW_TAG_union_type) {
-      dwarf_read_union(dbg, &child_die, (UnionInfo **)&info, err);
+      dwarf_read_union(dbg, &child_die, &type->info.unionInfo, err);
       type->category = UNION_TYPE;
-      type->info.unionInfo = info;
 
     } else if (tag == DW_TAG_pointer_type) {
 
-      dwarf_read_pointer(dbg, &child_die, (PointerInfo **)&info, err);
+      dwarf_read_pointer(dbg, &child_die, &type->info.pointerInfo, err);
       type->category = POINTER_TYPE;
-      type->info.pointerInfo = info;
+#ifdef DEBUG
+      assert(type->info.pointerInfo != NULL &&
+             (type->info.pointerInfo->targetType.offset > 0 ||
+              type->info.pointerInfo->targetType.index > 0 ||
+              type->info.pointerInfo->voidStar == true));
+      assert(type->category == POINTER_TYPE);
+#endif
 
     } else if (tag == DW_TAG_array_type) {
-      dwarf_read_array(dbg, &child_die, (ArrayInfo **)&info, err);
+
+      dwarf_read_array(dbg, &child_die, &type->info.pointerArrayInfo, err);
       type->category = ARRAY_TYPE;
-      type->info.pointerArrayInfo = info;
+
     } else if (tag == DW_TAG_base_type || tag == DW_TAG_enumeration_type ||
                tag == DW_TAG_typedef || tag == DW_TAG_const_type) {
+      free(type);
+      return DW_DLV_OK;
       // NOP
     } else if (tag == DW_TAG_variable) {
       // TODO: Track global pointers
+      free(type);
+      return DW_DLV_OK;
     } else {
       fprintf(stderr, "Missed die type: %x\n", tag);
       free(type);
@@ -474,10 +480,14 @@ int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die *root_die, RootInfo **info,
   // handle
   Dwarf_Locdesc **llbuf_copy =
       calloc(sizeof(Dwarf_Locdesc *), number_of_expressions);
+
   for (int i = 0; i < number_of_expressions; i++) {
     llbuf_copy[i] = calloc(sizeof(Dwarf_Locdesc), 1);
+
     memcpy(llbuf_copy[i], llbufarray[i], sizeof(Dwarf_Locdesc));
+
     llbuf_copy[i]->ld_s = calloc(sizeof(Dwarf_Loc), llbuf_copy[i]->ld_cents);
+
     memcpy(llbuf_copy[i]->ld_s, llbufarray[i]->ld_s,
            sizeof(Dwarf_Loc) * llbuf_copy[i]->ld_cents);
   }
@@ -654,7 +664,8 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die *type_die, PointerInfo **info,
     if (dwarf_attr(*target_die, DW_AT_type, &type_check, err) ==
         DW_DLV_NO_ENTRY) {
 
-      // There's no target type. Rather than a sentinel, I'm using a boolean for now.
+      // There's no target type. Rather than a sentinel, I'm using a boolean for
+      // now.
       voidStar = true;
       break;
 
@@ -758,11 +769,15 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die *type_die,
 
     if (child_tag == DW_TAG_member && is_pointer(dbg, &child_die, err)) {
 
-      Dwarf_Off key;
-      if (type_off(&child_die, &key, err) != DW_DLV_OK) {
+      Dwarf_Off key_off;
+
+      if (type_off(&child_die, &key_off, err) != DW_DLV_OK) {
         fprintf(stderr, "Error getting type offset for union member\n");
         return -1;
       }
+
+      TypeKey *key = calloc(sizeof(TypeKey), 1);
+      key->offset = key_off;
 
       arrayAppend((*unionInfo)->alternatives, (void *)key);
     }
@@ -779,19 +794,53 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die *type_die,
   return DW_DLV_OK;
 }
 
-void update_index(Array types, TypeKey *offset, int *index){
+void update_index(Array types, TypeKey *offset, int *index) {
+
+  if (offset->offset == 0) {
+    return;
+  }
 
   for (int i = 0; i < types->count; i++) {
-    Type* type = ((Type **)types->contents)[i];
+    Type *type = ((Type **)types->contents)[i];
+    /* printf("%llu\n", type->key.offset); */
+    /* printf("%llu\n", offset->offset); */
     if (type->key.offset == offset->offset) {
       *index = i;
       return;
     }
   }
 
-  fprintf(stderr, "Could not find the type offset %llu in the type list\n", offset->offset);
-  exit(1);
+  // Was a base type
+  *index = SENTINEL_INDEX;
+
+  return;
 }
+
+void fixRootTypes(Scope *scope, GCContext *context) {
+
+  if (scope->contents) {
+    RootInfo **contents = (RootInfo **)scope->contents->contents;
+
+    for (int k = 0; k < scope->contents->count; k++) {
+      int index;
+      RootInfo *root = contents[k];
+
+      TypeKey *rootOffset = &root->type;
+      printf("testing testing: %llu\n", rootOffset->offset);
+      update_index(context->types, rootOffset, &index);
+      rootOffset->index = index;
+    }
+  }
+
+  if (scope->children) {
+    Scope *scopes = (Scope *)scope->children->contents;
+
+    for (int k = 0; k < scope->children->count; k++) {
+      fixRootTypes(scope->children->contents[k], context);
+    }
+  }
+}
+
 
 void compress_type_table(GCContext *context) {
 
@@ -803,9 +852,8 @@ void compress_type_table(GCContext *context) {
 
     switch (type->category) {
     case POINTER_TYPE:
-      if(!type->info.pointerInfo->voidStar){
-        update_index(context->types,
-                     &(type->info.pointerInfo->targetType),
+      if (!type->info.pointerInfo->voidStar) {
+        update_index(context->types, &(type->info.pointerInfo->targetType),
                      &(indices[i]));
       }
       break;
@@ -821,10 +869,8 @@ void compress_type_table(GCContext *context) {
     case UNION_TYPE:
 
       for (int i = 0; i < type->info.unionInfo->alternatives->count; i++) {
-        update_index(
-            context->types,
-            &(((TypeKey *)(type->info.unionInfo->alternatives->contents))[i]),
-            &(indices[i]));
+        TypeKey *keyLoc = type->info.unionInfo->alternatives->contents[i];
+        update_index(context->types, keyLoc, &(indices[i]));
       }
       break;
     case ARRAY_TYPE:
@@ -837,15 +883,7 @@ void compress_type_table(GCContext *context) {
   // Update all stack map types.
   for (int i = 0; i < context->functions->count; i++) {
     Function *this = context->functions->contents[i];
-    for (int k = 0; k < this->topScope->contents->count; k++) {
-      int index;
-      TypeKey *rootOffset = &(((RootInfo *)(this->topScope->contents->contents))[i].type);
-      update_index(
-          context->types,
-          rootOffset,
-          &index);
-      rootOffset->index = index;
-    }
+    fixRootTypes(this->topScope, context);
   }
 
   for (int i = 0; i < context->types->count; i++) {
@@ -880,7 +918,7 @@ void sort_functions(GCContext *context) {
 
 void finalizeContext(GCContext *context) {
   compress_type_table(context);
-  sort_functions(context);
+  /* sort_functions(context); */
 }
 
 int findFunction(void *PC, GCContext *context, Function **outValue) {
