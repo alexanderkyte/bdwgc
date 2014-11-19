@@ -165,10 +165,14 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
           exit(-1);
         }
 
-        /* printf("breg %d register: %s register value: %p offset: %ld\n", reg, */
-        /* unw_regname(reg), (void *)reg_value, offset); */
-
         *location = (void *)reg_value + offset;
+        
+        /* printf("breg %d register: %s register value: %p offset: %ld, location: %p\n", */
+        /*        reg, */
+        /*        unw_regname(reg), */
+        /*        (void *)reg_value, */
+        /*        offset, */
+        /*        *location); */
 
         return DW_DLV_OK;
 

@@ -56,6 +56,7 @@ typedef enum {
   STRUCTURE_TYPE,
   UNION_TYPE,
   ARRAY_TYPE,
+  BASE_TYPE
 } TypeCategory;
 
 // handle typedefs in variable traversal
@@ -98,7 +99,7 @@ typedef struct {
   TypeCategory category;
   TypeKey key;
 #ifdef DEBUG
-  char **dieName;
+  char *dieName;
 #endif
   union info {
     PointerInfo *pointerInfo;

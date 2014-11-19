@@ -35,7 +35,9 @@ int main(int argc, char **argv) {
   void *test = (void *)999;
 
   printf("test location: %p\n", &test);
-
+  printf("testStr location: %p\n", &testStr);
+  printf("node v location: %p\n", &v);
+  
   GCContext *context;
   dwarf_read(argv[0], &context);
   printf("init done\n");
@@ -45,12 +47,14 @@ int main(int argc, char **argv) {
   get_roots(callStack, context, &roots);
   printf("got roots\n");
 
-  /*for (int i = 0; i < roots->roots->count; i++) {*/
-    /*Root *root = roots->roots->contents[i];*/
-    /*Type *type = context->types->contents[root->typeIndex];*/
-    /*printf("location: %p, type: %d\n", root->location, root->typeIndex);*/
-  /*}*/
+  for (int i = 0; i < roots->roots->count; i++) {
+    Root *root = roots->roots->contents[i];
+    Type *type = context->types->contents[root->typeIndex];
+    printf("location: %p, type: %d\n", root->location, type->key.index);
+  }
 
+  printf("done\n");
+  
   // printf("| name | contents | children | lowpc | highpc |\n");
   // for (int i = 0; i < context->functions->count; i++) {
   //   Function *fun = context->functions->contents[i];
@@ -69,5 +73,6 @@ int main(int argc, char **argv) {
   freeRoots(roots);
 
   free(v);
+  
   return y + z + x + fact(5) + 1;
 }

@@ -139,6 +139,7 @@ int dwarf_read(const char *executable, GCContext **context) {
     while (!doneWithCU) {
       if (dwarf_type_die(dbg, *context, child_die, &err) != DW_DLV_OK) {
         fprintf(stderr, "Error while typing die: %s\n", dwarf_errmsg(err));
+        return -1;
       }
 
       int rc = dwarf_siblingof(dbg, child_die, &child_die, &err);
@@ -182,9 +183,8 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
     {
       char *nameLoc;
       int status = dwarf_diename(child_die, &nameLoc, err);
-      if (status == DW_DLV_NO_ENTRY) {
+      if(status == DW_DLV_NO_ENTRY) {
         fprintf(stderr, "Error no given function name\n");
-        return -1;
       } else if (status == DW_DLV_ERROR) {
         fprintf(stderr, "Error given argument to diename was null\n");
         return -1;
@@ -210,11 +210,6 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
       return -1;
     }
 
-    /* char *nameLoc; */
-    /* if(dwarf_diename(child_die, &nameLoc, err) == DW_DLV_OK){ */
-    /*   printf("%s\n", nameLoc); */
-    /* } */
-
     /* Dwarf_Die printDie; */
 
     /* if(dwarf_offdie(dbg, typeKey, &printDie, err) != DW_DLV_OK) { */
@@ -230,6 +225,10 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
     Type *type = calloc(sizeof(Type), 1);
     type->key.offset = typeKey;
 
+#ifdef DEBUG
+    dwarf_diename(child_die, &type->dieName, err);
+#endif
+
     if (tag == DW_TAG_structure_type) {
       dwarf_read_struct(dbg, &child_die, &type->info.structInfo, err);
       type->category = STRUCTURE_TYPE;
@@ -242,6 +241,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
 
       dwarf_read_pointer(dbg, &child_die, &type->info.pointerInfo, err);
       type->category = POINTER_TYPE;
+
 #ifdef DEBUG
       assert(type->info.pointerInfo != NULL &&
              (type->info.pointerInfo->targetType.offset > 0 ||
@@ -257,8 +257,9 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
 
     } else if (tag == DW_TAG_base_type || tag == DW_TAG_enumeration_type ||
                tag == DW_TAG_typedef || tag == DW_TAG_const_type) {
-      free(type);
-      return DW_DLV_OK;
+
+      type->category = BASE_TYPE;
+
       // NOP
     } else if (tag == DW_TAG_variable) {
       // TODO: Track global pointers
@@ -802,8 +803,6 @@ void update_index(Array types, TypeKey *offset, int *index) {
 
   for (int i = 0; i < types->count; i++) {
     Type *type = ((Type **)types->contents)[i];
-    /* printf("%llu\n", type->key.offset); */
-    /* printf("%llu\n", offset->offset); */
     if (type->key.offset == offset->offset) {
       *index = i;
       return;
