@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
   printf("test location: %p\n", &test);
   printf("testStr location: %p\n", &testStr);
   printf("node v location: %p\n", &v);
-  
+
   GCContext *context;
   dwarf_read(argv[0], &context);
   printf("init done\n");
@@ -49,18 +49,25 @@ int main(int argc, char **argv) {
 
   for (int i = 0; i < roots->roots->count; i++) {
     Root *root = roots->roots->contents[i];
+    printf("index: %d\n", root->typeIndex);
     Type *type = context->types->contents[root->typeIndex];
-    printf("location: %p, type: %d\n", root->location, type->key.index);
+    // I know it'll always be a pointer
+    int typeIndex = type->info.pointerInfo->targetType.index;
+    printf("typeindex: %d\n", typeIndex);
+    if(typeIndex < context->types->count){
+      Type *target = context->types->contents[typeIndex];
+      printf("location: %p, type: %d, type category: %s\n", root->location, type->key.index, target->dieName);
+    }
   }
 
   printf("done\n");
-  
+
   // printf("| name | contents | children | lowpc | highpc |\n");
   // for (int i = 0; i < context->functions->count; i++) {
   //   Function *fun = context->functions->contents[i];
   //   printf(
   //     "%s %p %p */ "%d %d\n",
-  //     fun->dieName, 
+  //     fun->dieName,
   //     fun->topScope->contents,
   //     fun->topScope->children,
   //     fun->topScope->lowPC,
@@ -73,6 +80,6 @@ int main(int argc, char **argv) {
   freeRoots(roots);
 
   free(v);
-  
+
   return y + z + x + fact(5) + 1;
 }

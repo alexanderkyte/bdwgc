@@ -795,7 +795,7 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die *type_die,
   return DW_DLV_OK;
 }
 
-void update_index(Array types, TypeKey *offset, int *index) {
+void update_index(Array types, TypeKey *offset) {
 
   if (offset->offset == 0) {
     return;
@@ -804,13 +804,14 @@ void update_index(Array types, TypeKey *offset, int *index) {
   for (int i = 0; i < types->count; i++) {
     Type *type = ((Type **)types->contents)[i];
     if (type->key.offset == offset->offset) {
-      *index = i;
+      offset->index = i;
       return;
     }
   }
 
   // Was a base type
-  *index = SENTINEL_INDEX;
+  printf("assigning sentinel\n");
+  offset->index = SENTINEL_INDEX;
 
   return;
 }
@@ -821,12 +822,10 @@ void fixRootTypes(Scope *scope, GCContext *context) {
     RootInfo **contents = (RootInfo **)scope->contents->contents;
 
     for (int k = 0; k < scope->contents->count; k++) {
-      int index;
       RootInfo *root = contents[k];
 
       TypeKey *rootOffset = &root->type;
-      update_index(context->types, rootOffset, &index);
-      rootOffset->index = index;
+      update_index(context->types, rootOffset);
     }
   }
 
@@ -842,8 +841,6 @@ void fixRootTypes(Scope *scope, GCContext *context) {
 
 void compress_type_table(GCContext *context) {
 
-  int *indices = calloc(sizeof(int), context->types->count);
-
   // Update all type indices
   for (int i = 0; i < context->types->count; i++) {
     Type *type = (Type *)context->types->contents[i];
@@ -851,8 +848,7 @@ void compress_type_table(GCContext *context) {
     switch (type->category) {
     case POINTER_TYPE:
       if (!type->info.pointerInfo->voidStar) {
-        update_index(context->types, &(type->info.pointerInfo->targetType),
-                     &(indices[i]));
+        update_index(context->types, &(type->info.pointerInfo->targetType));
       }
       break;
     case STRUCTURE_TYPE:
@@ -860,20 +856,18 @@ void compress_type_table(GCContext *context) {
         update_index(
             context->types,
             &(((StructMember *)type->info.structInfo->members->contents[i])
-                  ->type),
-            &(indices[i]));
+              ->type));
       }
       break;
     case UNION_TYPE:
 
       for (int i = 0; i < type->info.unionInfo->alternatives->count; i++) {
         TypeKey *keyLoc = type->info.unionInfo->alternatives->contents[i];
-        update_index(context->types, keyLoc, &(indices[i]));
+        update_index(context->types, keyLoc);
       }
       break;
     case ARRAY_TYPE:
-      update_index(context->types, &(type->info.pointerArrayInfo->elementTypes),
-                   &(indices[i]));
+      update_index(context->types, &(type->info.pointerArrayInfo->elementTypes));
       break;
     }
   }
@@ -886,10 +880,8 @@ void compress_type_table(GCContext *context) {
 
   for (int i = 0; i < context->types->count; i++) {
     Type *type = (Type *)context->types->contents[i];
-    type->key.index = indices[i];
+    type->key.index = i;
   }
-
-  free(indices);
 
   return;
 }
