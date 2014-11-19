@@ -19,10 +19,13 @@ int fact(int n) {
 int main(int argc, char **argv) {
   z = 100000;
   int x = 10;
-  Node v = {.x = 100, .next = (void *)0};
+  Node* v = calloc(sizeof(Node), 1);
+  v->x = 100;
+  v->next = NULL;
 
   if (argc <= 0) {
     perror("Argv does not contain executable name. Something went very wrong");
+    return -1;
   }
 
   double testDouble[30];
@@ -40,6 +43,18 @@ int main(int argc, char **argv) {
   Roots *roots;
   get_roots(callStack, context, &roots);
   printf("got roots\n");
+
+  for(int i=0; i < roots->roots->count; i++){
+    printf("location: %p, type: %d\n", roots->roots->contents[i]);
+  }
+
+  printf("name | contents | children\n");
+  for(int i=0; i < context->functions->count; i++){
+    Function *fun = context->functions->contents[i];
+    printf("%s %p %p\n", fun->dieName, fun->topScope->contents, fun->topScope->children);
+  }
+
+  printf("done\n");
 
   freeContext(context);
   freeCallstack(callStack);

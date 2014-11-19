@@ -377,7 +377,7 @@ int dwarf_read_scope(Dwarf_Debug dbg,
         return -1;
       }
 
-      if (dwarf_tag(child_die, &type_tag, err) != DW_DLV_OK) {
+      if (dwarf_tag(type_die, &type_tag, err) != DW_DLV_OK) {
         perror("Error in dwarf_tag\n");
         return -1;
       }
@@ -883,12 +883,14 @@ void get_scope_roots(LiveFunction *fun, Scope *scope, GCContext *context,
 
     for (int i = 0; i < scope->children->count; i++) {
       if (pc >= children[i]->lowPC && pc <= children[i]->highPC) {
+        printf("getting scope roots recursively\n");
         get_scope_roots(fun, children[i], context, roots);
       }
     }
   }
 
   if (scope->contents != NULL) {
+    printf("non-null scope contents\n");
     for (int i = 0; i < scope->contents->count; i++) {
       RootInfo **rootInfo = (RootInfo **)scope->contents->contents;
       Root *root = calloc(sizeof(Root), 1);
@@ -899,6 +901,7 @@ void get_scope_roots(LiveFunction *fun, Scope *scope, GCContext *context,
         fprintf(stderr, "Error reading root\n");
         exit(1);
       }
+      printf("appending root\n");
       arrayAppend(roots->roots, root);
     }
   }
