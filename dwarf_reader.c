@@ -826,7 +826,6 @@ void fixRootTypes(Scope *scope, GCContext *context) {
       RootInfo *root = contents[k];
 
       TypeKey *rootOffset = &root->type;
-      printf("testing testing: %llu\n", rootOffset->offset);
       update_index(context->types, rootOffset, &index);
       rootOffset->index = index;
     }

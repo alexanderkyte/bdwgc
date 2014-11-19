@@ -95,10 +95,14 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
   for (int i = 0; i < expression_count; ++i) {
     Dwarf_Locdesc *llbuf = llbufarray[i];
 
-    Dwarf_Small op = llbuf->ld_s[i].lr_atom;
+    if(llbuf->ld_cents <= 0){
+      fprintf(stderr, "Expression has no nodes.\n");
+      exit(-1);
+    }
+    
+    Dwarf_Small op = llbuf->ld_s[0].lr_atom;
 
     Dwarf_Addr pc = (Dwarf_Addr)fun->pc;
-    printf("\npc: %llu, fun->pc: %p\n", pc, fun->pc);
 
     if (op == DW_OP_fbreg) {
 
@@ -112,13 +116,10 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
         continue;
       }
 
-      Dwarf_Unsigned offset = llbuf->ld_s[i].lr_number;
 
-      printf("setting to %llu\n", fun->sp + (unsigned long long)offset);
+      Dwarf_Unsigned offset = llbuf->ld_s[0].lr_number;
 
       *location = (void *)fun->sp + offset;
-
-      printf("after addition");
 
       return DW_DLV_OK;
 
@@ -127,7 +128,7 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
       Dwarf_Signed offset;
 
       unw_regnum_t reg;
-      unw_word_t reg_value;
+      unw_word_t reg_value = 0;
 
       switch (op) {
       case DW_OP_breg0:
@@ -153,12 +154,19 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
 
         offset = llbuf->ld_s[i].lr_number;
 
+        char *buff = calloc(sizeof(char), 100);
+        unw_word_t offp;
+        unw_get_proc_name(&(fun->cursor), buff, 100, &offp);
+        /* printf("name: %s\n", buff); */
+        
+        
         if (unw_get_reg(&(fun->cursor), reg, &reg_value) != 0) {
           fprintf(stderr, "Error occurred reading register\n");
+          exit(-1);
         }
 
-        /* printf("breg %d register: %s register value: %p offset: %ld\n", reg,
-         * unw_regname(reg), (void *)reg_value, offset); */
+        /* printf("breg %d register: %s register value: %p offset: %ld\n", reg, */
+        /* unw_regname(reg), (void *)reg_value, offset); */
 
         *location = (void *)reg_value + offset;
 
