@@ -19,7 +19,7 @@ int fact(int n) {
 int main(int argc, char **argv) {
   z = 100000;
   int x = 10;
-  Node *v = calloc(sizeof(Node), 1);
+  Node *v = calloc(1, sizeof(Node));
   v->x = 100;
   v->next = NULL;
 
@@ -54,9 +54,10 @@ int main(int argc, char **argv) {
     // I know it'll always be a pointer
     int typeIndex = type->info.pointerInfo->targetType.index;
     printf("typeindex: %d\n", typeIndex);
-    if(typeIndex < context->types->count){
+    if (typeIndex < context->types->count) {
       Type *target = context->types->contents[typeIndex];
-      printf("location: %p, type: %d, type category: %s\n", root->location, type->key.index, target->dieName);
+      printf("location: %p, type: %d, type category: %s\n", root->location,
+             type->key.index, target->dieName);
     }
   }
 

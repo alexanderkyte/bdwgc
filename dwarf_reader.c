@@ -101,7 +101,7 @@ int dwarf_read(const char *executable, GCContext **context) {
 
   bool done = false;
 
-  *context = calloc(sizeof(GCContext), 1);
+  *context = calloc(1, sizeof(GCContext));
   (*context)->types = newHeapArray(INITIAL_TYPE_LIST_SIZE);
   (*context)->functions = newHeapArray(INITIAL_FUNCTION_LIST_SIZE);
 
@@ -183,14 +183,14 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
     {
       char *nameLoc;
       int status = dwarf_diename(child_die, &nameLoc, err);
-      if(status == DW_DLV_NO_ENTRY) {
+      if (status == DW_DLV_NO_ENTRY) {
         fprintf(stderr, "Error no given function name\n");
       } else if (status == DW_DLV_ERROR) {
         fprintf(stderr, "Error given argument to diename was null\n");
         return -1;
       } else {
         int len = strlen(nameLoc);
-        fun->dieName = calloc(sizeof(char), len + 1);
+        fun->dieName = calloc(len + 1, sizeof(char));
         /* printf("new address: %p\n", fun->dieName); */
         strcpy(fun->dieName, nameLoc);
         /* printf("%s recorded in %d space, 0xlowpc: %x, 0xhighpc: %x\n",
@@ -222,7 +222,7 @@ int dwarf_type_die(Dwarf_Debug dbg, GCContext *context, Dwarf_Die child_die,
     /*   printf("%s == %s\n", nameLoc, nameLoc2); */
     /* } */
 
-    Type *type = calloc(sizeof(Type), 1);
+    Type *type = calloc(1, sizeof(Type));
     type->key.offset = typeKey;
 
 #ifdef DEBUG
@@ -290,7 +290,7 @@ int dwarf_read_function(Dwarf_Debug dbg, Dwarf_Die *fn_die, Function **fun,
     return -1;
   }
 
-  *fun = calloc(sizeof(Function), 1);
+  *fun = calloc(1, sizeof(Function));
   (*fun)->topScope = top_scope;
 
   return DW_DLV_OK;
@@ -365,7 +365,7 @@ int dwarf_read_scope(Dwarf_Debug dbg, Dwarf_Die *top_die, Scope *parent_scope,
   void *castedLowPC = (void *)lowPC;
   void *castedHighPC = (void *)highPC;
 
-  *top_scope = calloc(sizeof(Scope), 1);
+  *top_scope = calloc(1, sizeof(Scope));
   (*top_scope)->lowPC = castedLowPC;
   (*top_scope)->highPC = castedHighPC;
 
@@ -480,14 +480,14 @@ int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die *root_die, RootInfo **info,
   // Need to copy because libdwarf will free the memory on closing the file
   // handle
   Dwarf_Locdesc **llbuf_copy =
-      calloc(sizeof(Dwarf_Locdesc *), number_of_expressions);
+      calloc(number_of_expressions, sizeof(Dwarf_Locdesc *));
 
   for (int i = 0; i < number_of_expressions; i++) {
-    llbuf_copy[i] = calloc(sizeof(Dwarf_Locdesc), 1);
+    llbuf_copy[i] = calloc(1, sizeof(Dwarf_Locdesc));
 
     memcpy(llbuf_copy[i], llbufarray[i], sizeof(Dwarf_Locdesc));
 
-    llbuf_copy[i]->ld_s = calloc(sizeof(Dwarf_Loc), llbuf_copy[i]->ld_cents);
+    llbuf_copy[i]->ld_s = calloc(llbuf_copy[i]->ld_cents, sizeof(Dwarf_Loc));
 
     memcpy(llbuf_copy[i]->ld_s, llbufarray[i]->ld_s,
            sizeof(Dwarf_Loc) * llbuf_copy[i]->ld_cents);
@@ -501,7 +501,7 @@ int dwarf_read_root(Dwarf_Debug dbg, Dwarf_Die *root_die, RootInfo **info,
     return -1;
   }
 
-  *info = calloc(sizeof(RootInfo), 1);
+  *info = calloc(1, sizeof(RootInfo));
   (*info)->location = llbuf_copy;
   (*info)->expression_count = number_of_expressions;
   (*info)->type.offset = ref_off;
@@ -520,7 +520,7 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die *type_die,
   assert(type_tag == DW_TAG_structure_type);
 #endif
 
-  *structInfo = calloc(sizeof(StructInfo), 1);
+  *structInfo = calloc(1, sizeof(StructInfo));
   (*structInfo)->members = newHeapArray(DEFAULT_STRUCT_MEMBER_LIST_SIZE);
 
   Dwarf_Die child_die;
@@ -564,7 +564,7 @@ int dwarf_read_struct(Dwarf_Debug dbg, Dwarf_Die *type_die,
         return -1;
       }
 
-      StructMember *member = calloc(sizeof(StructMember), 1);
+      StructMember *member = calloc(1, sizeof(StructMember));
       member->type.offset = type_key;
       member->offset = field_offset;
 
@@ -632,7 +632,7 @@ int dwarf_read_array(Dwarf_Debug dbg, Dwarf_Die *type_die, ArrayInfo **info,
     return -1;
   }
 
-  *info = calloc(sizeof(ArrayInfo), 1);
+  *info = calloc(1, sizeof(ArrayInfo));
   (*info)->elementTypes = (TypeKey)content_type_off;
   (*info)->count = (int)count;
 
@@ -692,7 +692,7 @@ int dwarf_read_pointer(Dwarf_Debug dbg, Dwarf_Die *type_die, PointerInfo **info,
     }
   }
 
-  *info = calloc(sizeof(PointerInfo), 1);
+  *info = calloc(1, sizeof(PointerInfo));
   (*info)->layersOfIndirection = indirectionCount;
   (*info)->targetType.offset = target_off;
   (*info)->voidStar = voidStar;
@@ -757,7 +757,7 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die *type_die,
 
   bool done = false;
 
-  *unionInfo = calloc(sizeof(UnionInfo), 1);
+  *unionInfo = calloc(1, sizeof(UnionInfo));
   (*unionInfo)->alternatives = newHeapArray(DEFAULT_UNION_TYPE_LIST_SIZE);
 
   while (!done) {
@@ -777,7 +777,7 @@ int dwarf_read_union(Dwarf_Debug dbg, Dwarf_Die *type_die,
         return -1;
       }
 
-      TypeKey *key = calloc(sizeof(TypeKey), 1);
+      TypeKey *key = calloc(1, sizeof(TypeKey));
       key->offset = key_off;
 
       arrayAppend((*unionInfo)->alternatives, (void *)key);
@@ -838,7 +838,6 @@ void fixRootTypes(Scope *scope, GCContext *context) {
   }
 }
 
-
 void compress_type_table(GCContext *context) {
 
   // Update all type indices
@@ -856,7 +855,7 @@ void compress_type_table(GCContext *context) {
         update_index(
             context->types,
             &(((StructMember *)type->info.structInfo->members->contents[i])
-              ->type));
+                  ->type));
       }
       break;
     case UNION_TYPE:
@@ -867,7 +866,8 @@ void compress_type_table(GCContext *context) {
       }
       break;
     case ARRAY_TYPE:
-      update_index(context->types, &(type->info.pointerArrayInfo->elementTypes));
+      update_index(context->types,
+                   &(type->info.pointerArrayInfo->elementTypes));
       break;
     }
   }
@@ -887,8 +887,8 @@ void compress_type_table(GCContext *context) {
 }
 
 int cmpFunctions(const void *firstArg, const void *secondArg) {
-  Function* first = *( (Function **)firstArg );
-  Function* second = *( (Function **)secondArg );
+  Function *first = *((Function **)firstArg);
+  Function *second = *((Function **)secondArg);
   int lowDiff = first->topScope->lowPC - second->topScope->lowPC;
 
   if (lowDiff == 0) {
@@ -901,7 +901,7 @@ int cmpFunctions(const void *firstArg, const void *secondArg) {
 
 void sort_functions(GCContext *context) {
   void *base = context->functions->contents;
-  size_t nitems = context->functions->count-1;
+  size_t nitems = context->functions->count - 1;
   size_t size = sizeof(Function *);
   qsort(base, nitems, size, cmpFunctions);
 }
@@ -977,7 +977,7 @@ void get_scope_roots(LiveFunction *fun, Scope *scope, GCContext *context,
   if (scope->contents != NULL) {
     for (int i = 0; i < scope->contents->count; i++) {
       RootInfo **rootInfo = (RootInfo **)scope->contents->contents;
-      Root *root = calloc(sizeof(Root), 1);
+      Root *root = calloc(1, sizeof(Root));
       root->typeIndex = ((RootInfo **)scope->contents->contents)[i]->type.index;
 
       if (var_location(fun, rootInfo[i]->location,
@@ -997,7 +997,7 @@ void freeRoots(Roots *roots) {
 
 // CallStack and context are in parameters, roots are outparameters
 int get_roots(CallStack *callStack, GCContext *context, Roots **roots) {
-  *roots = calloc(sizeof(Roots), 1);
+  *roots = calloc(1, sizeof(Roots));
   (*roots)->roots = newHeapArray(DEFAULT_ROOT_COUNT);
 
   for (int i = 0; i < callStack->count; i++) {

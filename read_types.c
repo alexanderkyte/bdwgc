@@ -18,11 +18,11 @@ void arrayAppend(Array array, void *item) {
 }
 
 Array newHeapArray(int capacity) {
-  Array out = calloc(sizeof(struct HeapArray), 1);
+  Array out = calloc(1, sizeof(struct HeapArray));
 
   out->count = 0;
   out->capacity = capacity;
-  out->contents = calloc(sizeof(void *), out->capacity);
+  out->contents = calloc(out->capacity, sizeof(void *));
 
   return out;
 }
@@ -95,11 +95,11 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
   for (int i = 0; i < expression_count; ++i) {
     Dwarf_Locdesc *llbuf = llbufarray[i];
 
-    if(llbuf->ld_cents <= 0){
+    if (llbuf->ld_cents <= 0) {
       fprintf(stderr, "Expression has no nodes.\n");
       exit(-1);
     }
-    
+
     Dwarf_Small op = llbuf->ld_s[0].lr_atom;
 
     Dwarf_Addr pc = (Dwarf_Addr)fun->pc;
@@ -115,7 +115,6 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
       if (llbuf->ld_hipc != 0 && llbuf->ld_hipc < pc) {
         continue;
       }
-
 
       Dwarf_Unsigned offset = llbuf->ld_s[0].lr_number;
 
@@ -154,20 +153,20 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
 
         offset = llbuf->ld_s[i].lr_number;
 
-        char *buff = calloc(sizeof(char), 100);
+        char *buff = calloc(100, sizeof(char));
         unw_word_t offp;
         unw_get_proc_name(&(fun->cursor), buff, 100, &offp);
         /* printf("name: %s\n", buff); */
-        
-        
+
         if (unw_get_reg(&(fun->cursor), reg, &reg_value) != 0) {
           fprintf(stderr, "Error occurred reading register\n");
           exit(-1);
         }
 
         *location = (void *)reg_value + offset;
-        
-        /* printf("breg %d register: %s register value: %p offset: %ld, location: %p\n", */
+
+        /* printf("breg %d register: %s register value: %p offset: %ld,
+         * location: %p\n", */
         /*        reg, */
         /*        unw_regname(reg), */
         /*        (void *)reg_value, */
@@ -188,18 +187,16 @@ int var_location(LiveFunction *fun, Dwarf_Locdesc **llbufarray,
   return 0;
 }
 
-
-
 void freeCallstack(CallStack *callStack) {
   free(callStack->stack);
   free(callStack);
 }
 
 int dwarf_backtrace(CallStack **returnStack) {
-  *returnStack = calloc(sizeof(CallStack), 1);
+  *returnStack = calloc(1, sizeof(CallStack));
 
   CallStack *callStack = *returnStack;
-  callStack->stack = calloc(sizeof(LiveFunction), INITIAL_LIVE_FUNCTION_SIZE);
+  callStack->stack = calloc(INITIAL_LIVE_FUNCTION_SIZE, sizeof(LiveFunction));
   callStack->count = 0;
   callStack->capacity = INITIAL_LIVE_FUNCTION_SIZE;
 
